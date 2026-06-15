@@ -1,32 +1,14 @@
-//
-//  Wilmette_Kenilworth_PerksApp.swift
-//  Wilmette Kenilworth Perks
-//
-//  Created by Bode Hubbard on 6/10/26.
-//
-
 import SwiftUI
-import SwiftData
 
 @main
 struct Wilmette_Kenilworth_PerksApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var authManager = AuthManager()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRouter()
+                .environment(authManager)
+                .preferredColorScheme(.light)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
