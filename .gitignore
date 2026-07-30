@@ -1,0 +1,16 @@
+# Xcode / local build products
+build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Supabase CLI local cache (may include connection URLs)
+supabase/.temp/
+
+# Cursor local plans / IDE
+.cursor/

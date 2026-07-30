@@ -44,14 +44,14 @@ struct MemberCardView: View {
                 VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
                     Text(member.fullName.uppercased())
                         .font(.system(.title3, design: .default).weight(.bold))
-                        .foregroundStyle(WKCCColors.textOnPrimary)
+                        .foregroundStyle(WKCCColors.textPrimary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
 
                     if let company = member.companyName {
                         Text(company)
                             .font(WKCCTypography.callout)
-                            .foregroundStyle(WKCCColors.textOnPrimary.opacity(0.85))
+                            .foregroundStyle(WKCCColors.textSecondary)
                             .lineLimit(2)
                             .minimumScaleFactor(0.9)
                     }
@@ -72,21 +72,25 @@ struct MemberCardView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Member ID")
                     .font(WKCCTypography.caption)
-                    .foregroundStyle(WKCCColors.textOnPrimary.opacity(0.7))
+                    .foregroundStyle(WKCCColors.textSecondary)
 
                 Spacer(minLength: WKCCSpacing.sm)
 
                 Text(authManager.member?.id ?? "—")
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(WKCCColors.textOnPrimary.opacity(0.9))
+                    .foregroundStyle(WKCCColors.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
         }
         .padding(WKCCSpacing.md)
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
-        .background(WKCCColors.primary)
+        .background(WKCCColors.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: WKCCRadius.xl)
+                .stroke(WKCCColors.primary.opacity(0.12), lineWidth: 1)
+        )
         .wkccCardShadow()
     }
 }

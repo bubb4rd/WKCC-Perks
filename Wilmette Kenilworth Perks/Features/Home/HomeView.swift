@@ -3,6 +3,8 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AuthManager.self) private var authManager
     @State private var viewModel = HomeViewModel()
+    @State private var notificationsViewModel = NotificationsViewModel()
+    @State private var isShowingNotifications = false
 
     private let bentoColumns = [
         GridItem(.flexible(), spacing: WKCCSpacing.sm),
@@ -25,6 +27,23 @@ struct HomeView: View {
             .task {
                 await viewModel.load()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .businessLogoDidChange)) { _ in
+                Task { await viewModel.load() }
+            }
+            .task(id: notificationRefreshKey) {
+                guard AppConfig.useMockAuth else { return }
+                await notificationsViewModel.load(
+                    member: authManager.member,
+                    isAdmin: authManager.isChamberAdmin
+                )
+            }
+            .sheet(isPresented: $isShowingNotifications) {
+                NotificationsView(
+                    viewModel: notificationsViewModel,
+                    member: authManager.member,
+                    isAdmin: authManager.isChamberAdmin
+                )
+            }
             .navigationDestination(for: DealSummary.self) { deal in
                 DealDetailView(dealId: deal.id)
             }
@@ -41,8 +60,6 @@ struct HomeView: View {
                     BusinessesListView()
                 case .memberCard:
                     MemberCardView()
-                case .category(let category):
-                    DealsListView(initialCategory: category)
                 }
             }
         }
@@ -51,16 +68,14 @@ struct HomeView: View {
     private var scrollContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
-                welcomeBanner
-
                 if let error = viewModel.errorMessage {
                     ErrorBanner(message: error) {
                         viewModel.dismissError()
                     }
                 }
-
+                homeGreeting
                 if let spotlight = viewModel.spotlightDeal {
-                    spotlightSection(spotlight)
+                    spotlightSection(spotlight, imageURL: viewModel.spotlightImageURL)
                 }
 
                 quickAccessGrid
@@ -68,53 +83,39 @@ struct HomeView: View {
                 if !viewModel.previewBusinesses.isEmpty {
                     partnerStrip
                 }
-
-                categoryGrid
             }
             .padding(.horizontal, WKCCSpacing.md)
+            .padding(.top, WKCCSpacing.sm)
             .padding(.bottom, WKCCSpacing.xl)
         }
         .wkccPageBackground()
     }
 
-    private var welcomeBanner: some View {
-        HStack(alignment: .center, spacing: WKCCSpacing.md) {
-            WKCCLogoView(style: .mark, maxWidth: 52)
-
-            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
-                Text(authManager.member?.greetingName ?? "Member")
-                    .font(.system(.title2, design: .default).weight(.bold))
-                    .foregroundStyle(WKCCColors.textPrimary)
-
-                Text("WKCC Perks")
-                    .font(WKCCTypography.caption)
-                    .foregroundStyle(WKCCColors.textSecondary)
-            }
-
-            Spacer()
-
-            if let member = authManager.member {
-                MembershipTierBadge(tier: member.membershipTier, style: .compact)
-            }
-        }
-        .padding(WKCCSpacing.md)
-        .background(
-            LinearGradient(
-                colors: [
-                    WKCCColors.primary.opacity(0.06),
-                    WKCCColors.accent.opacity(0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
-        .padding(.top, WKCCSpacing.sm)
+    private var notificationRefreshKey: String {
+        "\(authManager.member?.id ?? "guest")-\(authManager.isChamberAdmin)"
     }
 
-    private func spotlightSection(_ deal: DealSummary) -> some View {
+    private var homeGreeting: some View {
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                Text("Hi, \(authManager.member?.greetingName ?? "Guest")")
+                    .font(WKCCTypography.sectionTitle)
+                    .foregroundStyle(WKCCColors.primary)
+            }
+
+            Spacer(minLength: 0)
+
+            if AppConfig.useMockAuth {
+                NotificationBellButton(unreadCount: notificationsViewModel.unreadCount) {
+                    isShowingNotifications = true
+                }
+            }
+        }
+    }
+
+    private func spotlightSection(_ deal: DealSummary, imageURL: URL?) -> some View {
         NavigationLink(value: deal) {
-            SpotlightCard(deal: deal)
+            SpotlightCard(deal: deal, imageURL: imageURL)
         }
         .buttonStyle(.plain)
     }
@@ -149,13 +150,17 @@ struct HomeView: View {
             }
 
             NavigationLink(value: HomeDestination.memberCard) {
-                BentoTile(
-                    icon: "creditcard.fill",
-                    value: nil,
-                    label: "Member Card",
-                    tint: WKCCColors.accent
-                )
+                Image("WKCCLogo")
+                    .renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .frame(minHeight: HomeBentoMetrics.tileMinHeight)
+                    .padding(HomeBentoMetrics.tilePadding)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Member Card")
             }
+            .allowsHitTesting(false)
         }
         .buttonStyle(.plain)
     }
@@ -189,23 +194,11 @@ struct HomeView: View {
         }
     }
 
-    private var categoryGrid: some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            Text("Categories")
-                .font(WKCCTypography.headline)
-                .foregroundStyle(WKCCColors.textPrimary)
+}
 
-            LazyVGrid(columns: bentoColumns, spacing: WKCCSpacing.sm) {
-                ForEach(DealCategory.allCases) { category in
-                    NavigationLink(value: HomeDestination.category(category)) {
-                        CategoryTile(category: category)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
+private enum HomeBentoMetrics {
+    static let tileMinHeight: CGFloat = 128
+    static let tilePadding: CGFloat = WKCCSpacing.md
 }
 
 // MARK: - Navigation
@@ -215,83 +208,114 @@ private enum HomeDestination: Hashable {
     case expiringDeals
     case businesses
     case memberCard
-    case category(DealCategory)
 }
 
 // MARK: - Components
 
-private struct SpotlightCard: View {
-    let deal: DealSummary
+private struct NotificationBellButton: View {
+    let unreadCount: Int
+    let action: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            LinearGradient(
-                colors: [WKCCColors.primary, WKCCColors.primary.opacity(0.82)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Image(systemName: deal.category.iconName)
-                .font(.system(size: 88, weight: .ultraLight))
-                .foregroundStyle(.white.opacity(0.12))
-                .offset(x: 12, y: -8)
-
-            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
-                HStack(spacing: WKCCSpacing.xs) {
-                    HStack(spacing: WKCCSpacing.xxs) {
-                        Image(systemName: "star.fill")
-                            .font(.caption2)
-                        Text("Spotlight")
-                            .font(WKCCTypography.captionBold)
-                    }
+        Button(action: action) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell.fill")
+                    .font(.title3)
                     .foregroundStyle(WKCCColors.primary)
-                    .padding(.horizontal, WKCCSpacing.sm)
-                    .padding(.vertical, WKCCSpacing.xxs)
-                    .background(WKCCColors.accent)
-                    .clipShape(Capsule())
+                    .frame(width: 40, height: 40)
+                    .background(WKCCColors.cardBackground)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(WKCCColors.primary.opacity(0.08), lineWidth: 1)
+                    )
 
-                    Spacer()
+                if unreadCount > 0 {
+                    Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(WKCCColors.textOnPrimary)
+                        .padding(.horizontal, unreadCount > 9 ? 4 : 5)
+                        .padding(.vertical, 2)
+                        .background(WKCCColors.error)
+                        .clipShape(Capsule())
+                        .offset(x: 6, y: -4)
                 }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Notifications")
+        .accessibilityValue(unreadCount > 0 ? "\(unreadCount) unread" : "No unread notifications")
+    }
+}
 
-                Text(deal.title)
-                    .font(.system(.title2, design: .default).weight(.bold))
-                    .foregroundStyle(WKCCColors.textOnPrimary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
+private struct SpotlightCard: View {
+    let deal: DealSummary
+    let imageURL: URL?
+
+    private let cardHeight: CGFloat = 220
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            PerkCardBackground(imageURL: imageURL)
+
+            VStack(alignment: .leading, spacing: 0) {
+                spotlightBadge
+                    .padding(WKCCSpacing.lg)
+
+                Spacer(minLength: 0)
 
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                        Text(deal.title)
+                            .font(.system(.title3, design: .default).weight(.bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+
                         Text(deal.businessName)
                             .font(WKCCTypography.callout)
-                            .foregroundStyle(WKCCColors.textOnPrimary.opacity(0.85))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
 
                         if let expiration = deal.expirationDate {
                             Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day()))")
-                                .font(WKCCTypography.captionBold)
+                                .font(WKCCTypography.callout.weight(.medium))
                                 .foregroundStyle(WKCCColors.accent)
                         }
                     }
 
-                    Spacer()
+                    Spacer(minLength: WKCCSpacing.sm)
 
                     HStack(spacing: WKCCSpacing.xxs) {
                         Text("View")
-                            .font(WKCCTypography.captionBold)
+                            .font(WKCCTypography.callout.weight(.semibold))
                         Image(systemName: "arrow.right")
-                            .font(.caption.weight(.bold))
+                            .font(.callout.weight(.semibold))
                     }
-                    .foregroundStyle(WKCCColors.textOnPrimary.opacity(0.9))
+                    .foregroundStyle(.white)
                 }
+                .padding(WKCCSpacing.lg)
             }
-            .padding(WKCCSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(height: cardHeight)
+        .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: WKCCRadius.xl)
-                .stroke(WKCCColors.accent.opacity(0.45), lineWidth: 1.5)
-        )
-        .shadow(color: WKCCColors.primary.opacity(0.28), radius: 16, x: 0, y: 8)
+        .wkccCardShadow()
+    }
+
+    private var spotlightBadge: some View {
+        HStack(spacing: WKCCSpacing.xxs) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(WKCCColors.accent)
+            Text("Spotlight")
+                .font(WKCCTypography.captionBold)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, WKCCSpacing.sm)
+        .padding(.vertical, WKCCSpacing.xxs)
+        .background(Color.black.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm))
     }
 }
 
@@ -311,7 +335,7 @@ private struct BentoTile: View {
 
             if let value {
                 Text(value)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(WKCCColors.textPrimary)
             }
 
@@ -320,8 +344,8 @@ private struct BentoTile: View {
                 .foregroundStyle(WKCCColors.textSecondary)
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
-        .padding(WKCCSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: HomeBentoMetrics.tileMinHeight, alignment: .leading)
+        .padding(HomeBentoMetrics.tilePadding)
         .background(WKCCColors.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
     }
@@ -332,15 +356,7 @@ private struct PartnerChip: View {
 
     var body: some View {
         VStack(spacing: WKCCSpacing.xs) {
-            ZStack {
-                Circle()
-                    .fill(WKCCColors.primary.opacity(0.1))
-                    .frame(width: 56, height: 56)
-
-                Text(business.name.prefix(1).uppercased())
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(WKCCColors.primary)
-            }
+            BusinessLogoView(url: business.logoURL, size: 56, shape: .circle)
 
             Text(business.name)
                 .font(WKCCTypography.caption)
@@ -349,30 +365,6 @@ private struct PartnerChip: View {
                 .multilineTextAlignment(.center)
                 .frame(width: 72)
         }
-    }
-}
-
-private struct CategoryTile: View {
-    let category: DealCategory
-
-    var body: some View {
-        HStack(spacing: WKCCSpacing.sm) {
-            Image(systemName: category.iconName)
-                .font(.body)
-                .foregroundStyle(WKCCColors.primary)
-                .frame(width: 24)
-
-            Text(category.rawValue)
-                .font(WKCCTypography.callout)
-                .foregroundStyle(WKCCColors.textPrimary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(WKCCSpacing.md)
-        .frame(maxWidth: .infinity)
-        .background(WKCCColors.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md))
     }
 }
 

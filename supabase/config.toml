@@ -1,0 +1,8 @@
+[functions.growthzone-auth]
+verify_jwt = false
+
+[functions.member-auth]
+verify_jwt = false
+
+[functions.perks]
+verify_jwt = false

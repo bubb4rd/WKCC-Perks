@@ -16,7 +16,6 @@ final class DealsListViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    var searchText = ""
     var selectedCategory: DealCategory?
     var selectedFilter: DealFilter = .all
 
@@ -28,10 +27,6 @@ final class DealsListViewModel {
 
     var filteredDeals: [DealSummary] {
         deals.filter { deal in
-            let matchesSearch = searchText.isEmpty
-                || deal.title.localizedCaseInsensitiveContains(searchText)
-                || deal.businessName.localizedCaseInsensitiveContains(searchText)
-
             let matchesCategory = selectedCategory == nil || deal.category == selectedCategory
 
             let matchesFilter: Bool = switch selectedFilter {
@@ -40,7 +35,7 @@ final class DealsListViewModel {
             case .expiringSoon: deal.isExpiringSoon
             }
 
-            return matchesSearch && matchesCategory && matchesFilter && !deal.isExpired
+            return matchesCategory && matchesFilter && !deal.isExpired
         }
     }
 

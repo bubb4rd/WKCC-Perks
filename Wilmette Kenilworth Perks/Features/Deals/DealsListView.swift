@@ -5,6 +5,11 @@ struct DealsListView: View {
     var initialFilter: DealFilter? = nil
 
     @State private var viewModel = DealsListViewModel()
+    @State private var isFilterSheetPresented = false
+
+    private var hasActiveFilters: Bool {
+        viewModel.selectedFilter != .all || viewModel.selectedCategory != nil
+    }
 
     var body: some View {
         Group {
@@ -14,16 +19,41 @@ struct DealsListView: View {
                 EmptyStateView(
                     icon: "tag",
                     title: "No Deals Found",
-                    message: "Try adjusting your search or filters."
+                    message: "Try adjusting your filters."
                 )
             } else {
                 dealsList
             }
         }
         .navigationTitle("Deals")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .searchable(text: $viewModel.searchText, prompt: "Search deals or businesses")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                NavigationLink {
+                    DealsSearchView()
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search deals")
+
+                Button {
+                    isFilterSheetPresented = true
+                } label: {
+                    Image(systemName: hasActiveFilters
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel("Filters")
+            }
+        }
+        .sheet(isPresented: $isFilterSheetPresented) {
+            ListFilterSheet(
+                selectedCategory: $viewModel.selectedCategory,
+                selectedFilter: $viewModel.selectedFilter
+            )
+        }
         .refreshable {
             await viewModel.load()
         }
@@ -40,82 +70,23 @@ struct DealsListView: View {
     }
 
     private var dealsList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: WKCCSpacing.md) {
                 if let error = viewModel.errorMessage {
                     ErrorBanner(message: error) {
                         viewModel.dismissError()
                     }
                 }
 
-                filterBar
-                categoryBar
-
                 ForEach(viewModel.filteredDeals) { deal in
-                    NavigationLink(value: deal) {
-                        DealCard(deal: deal)
-                    }
-                    .buttonStyle(.plain)
+                    DealCard(deal: deal)
                 }
             }
-            .padding(WKCCSpacing.md)
+            .padding(.horizontal, WKCCSpacing.md)
+            .padding(.vertical, WKCCSpacing.md)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .wkccPageBackground()
-    }
-
-    private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: WKCCSpacing.xs) {
-                ForEach(DealFilter.allCases) { filter in
-                    Button {
-                        viewModel.selectedFilter = filter
-                    } label: {
-                        Text(filter.rawValue)
-                            .font(WKCCTypography.captionBold)
-                            .padding(.horizontal, WKCCSpacing.sm)
-                            .padding(.vertical, WKCCSpacing.xs)
-                            .background(viewModel.selectedFilter == filter ? WKCCColors.primary : WKCCColors.cardBackground)
-                            .foregroundStyle(viewModel.selectedFilter == filter ? WKCCColors.textOnPrimary : WKCCColors.textPrimary)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(WKCCColors.primary.opacity(viewModel.selectedFilter == filter ? 0 : 0.15), lineWidth: 1)
-                            )
-                    }
-                }
-            }
-        }
-    }
-
-    private var categoryBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: WKCCSpacing.xs) {
-                Button {
-                    viewModel.selectedCategory = nil
-                } label: {
-                    Text("All Categories")
-                        .font(WKCCTypography.captionBold)
-                        .padding(.horizontal, WKCCSpacing.sm)
-                        .padding(.vertical, WKCCSpacing.xs)
-                        .background(viewModel.selectedCategory == nil ? WKCCColors.accent : WKCCColors.cardBackground)
-                        .foregroundStyle(viewModel.selectedCategory == nil ? WKCCColors.textOnPrimary : WKCCColors.textPrimary)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(WKCCColors.primary.opacity(viewModel.selectedCategory == nil ? 0 : 0.15), lineWidth: 1)
-                        )
-                }
-
-                ForEach(DealCategory.allCases) { category in
-                    CategoryChip(
-                        category: category,
-                        isSelected: viewModel.selectedCategory == category
-                    ) {
-                        viewModel.selectedCategory = category
-                    }
-                }
-            }
-        }
     }
 }
 

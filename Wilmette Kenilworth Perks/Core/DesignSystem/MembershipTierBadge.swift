@@ -55,6 +55,8 @@ struct MembershipTierBadge: View {
             WKCCColors.primary
         case .municipality:
             WKCCColors.accent.opacity(0.35)
+        case .chamber:
+            WKCCColors.accent.opacity(0.25)
         }
     }
 }
@@ -72,6 +74,8 @@ private extension MembershipTier {
             Color(red: 0.72, green: 0.55, blue: 0.12)
         case .platinum:
             WKCCColors.primary
+        case .chamber:
+            WKCCColors.accent
         }
     }
 }

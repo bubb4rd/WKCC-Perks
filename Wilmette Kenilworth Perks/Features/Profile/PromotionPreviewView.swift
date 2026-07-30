@@ -1,5 +1,54 @@
 import SwiftUI
 
+/// Confirmation / preview content for a promotion submission (embeddable in the submit wizard).
+struct PromotionPreviewContent: View {
+    @Bindable var viewModel: SubmitPromotionViewModel
+
+    private var dealSummary: DealSummary { viewModel.previewDealSummary }
+    private var dealDetail: DealDetail { viewModel.previewDealDetail }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
+            previewBanner
+
+            previewSection(title: "Deals List") {
+                DealCard(deal: dealSummary)
+            }
+
+            previewSection(title: "Deal Details") {
+                PromotionDetailPreview(deal: dealDetail, codeType: viewModel.submission.redemptionCodeType)
+            }
+        }
+    }
+
+    private var previewBanner: some View {
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            Image(systemName: "eye.fill")
+                .foregroundStyle(WKCCColors.primary)
+
+            Text("This is how your promotion will appear to all WKCC members.")
+                .font(WKCCTypography.callout)
+                .foregroundStyle(WKCCColors.textPrimary)
+        }
+        .padding(WKCCSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WKCCColors.primary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
+    }
+
+    private func previewSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+            Text(title)
+                .font(WKCCTypography.brandCaps)
+                .foregroundStyle(WKCCColors.primary)
+                .tracking(0.5)
+
+            content()
+        }
+    }
+}
+
+/// Standalone preview screen (kept for previews / deep links). Prefer embedding `PromotionPreviewContent` in the wizard.
 struct PromotionPreviewView: View {
     @Bindable var viewModel: SubmitPromotionViewModel
     let onSubmitted: () -> Void
@@ -7,21 +56,10 @@ struct PromotionPreviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showSuccessAlert = false
 
-    private var dealSummary: DealSummary { viewModel.previewDealSummary }
-    private var dealDetail: DealDetail { viewModel.previewDealDetail }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
-                previewBanner
-
-                previewSection(title: "Deals List Card") {
-                    DealCard(deal: dealSummary)
-                }
-
-                previewSection(title: "Deal Detail View") {
-                    PromotionDetailPreview(deal: dealDetail, codeType: viewModel.submission.redemptionCodeType)
-                }
+                PromotionPreviewContent(viewModel: viewModel)
 
                 if let error = viewModel.errorMessage {
                     ErrorBanner(message: error) {
@@ -61,32 +99,6 @@ struct PromotionPreviewView: View {
             }
         } message: {
             Text("Thank you! The chamber will review your promotion and follow up if needed.")
-        }
-    }
-
-    private var previewBanner: some View {
-        HStack(alignment: .top, spacing: WKCCSpacing.sm) {
-            Image(systemName: "eye.fill")
-                .foregroundStyle(WKCCColors.primary)
-
-            Text("This is how your promotion will appear to members. Review the card and detail view, then submit or go back to edit.")
-                .font(WKCCTypography.callout)
-                .foregroundStyle(WKCCColors.textPrimary)
-        }
-        .padding(WKCCSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WKCCColors.primary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
-    }
-
-    private func previewSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            Text(title.uppercased())
-                .font(WKCCTypography.brandCaps)
-                .foregroundStyle(WKCCColors.primary)
-                .tracking(0.5)
-
-            content()
         }
     }
 }

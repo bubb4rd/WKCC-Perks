@@ -7,13 +7,22 @@ enum AppDependencies {
         let authService: any AuthServicing
         let dealsService: any DealsServicing
         let businessService: any BusinessServicing
+        let promotionSubmissionService: any PromotionSubmissionServicing
+        let perksAdminService: any PerksAdminServicing
+        let notificationService: any NotificationServicing
 
         init() {
-            authService = AppConfig.useMockAuth
-                ? MockAuthService()
-                : GrowthZoneAuthService()
-            dealsService = MockDealsService()
-            businessService = MockBusinessService()
+            let useMock = AppConfig.useMockAuth
+            authService = useMock ? MockAuthService() : MemberAuthService()
+            dealsService = useMock ? MockDealsService() : SupabaseDealsService()
+            businessService = useMock ? MockBusinessService() : SupabaseBusinessService()
+            promotionSubmissionService = useMock
+                ? MockPromotionSubmissionService()
+                : SupabasePromotionSubmissionService()
+            perksAdminService = useMock
+                ? MockPerksAdminService()
+                : SupabasePerksAdminService()
+            notificationService = MockNotificationService()
         }
     }
 }

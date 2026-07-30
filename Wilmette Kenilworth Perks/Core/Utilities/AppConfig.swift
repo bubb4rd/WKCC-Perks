@@ -26,16 +26,50 @@ enum AppConfig {
         URL(string: "mailto:\(supportEmail)")
     }
 
-    // Replace with real GrowthZone endpoints when chamber provides them.
-    static let growthZoneLoginURL = URL(string: "https://www.growthzone.com/login")!
-    static let growthZonePasswordResetURL = URL(string: "https://www.growthzone.com/forgot-password")!
+    // MARK: - Member auth (backend-first)
+
+    static let chamberAssociationId = 463
+
+    /// Supabase edge function base URL for member OTP auth.
+    static let memberAuthBaseURL = URL(
+        string: "https://wbzmpylhlsikgzpmfksl.supabase.co/functions/v1/member-auth"
+    )!
+
+    /// Supabase edge function base URL for deals, submissions, and admin perks.
+    static let perksBaseURL = URL(
+        string: "https://wbzmpylhlsikgzpmfksl.supabase.co/functions/v1/perks"
+    )!
+
+    /// Publishable/anon key for invoking edge functions from the app.
+    /// Safe for client use; never put the service_role key here.
+    static let supabaseAnonKey =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indiem1weWxobHNpa2d6cG1ma3NsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3MDk5MzMsImV4cCI6MjA5OTI4NTkzM30.h7DaWwu0gTGqBypcVc_RLEm__1Vhxnb8qfri6QbBfoI"
+
+    // MARK: - Legacy GrowthZone (unused; kept so legacy files compile)
+
+    static let growthZoneHost = "https://wilmettekenilworth.growthzoneapp.com"
+    static let growthZoneOAuthClientID = "UNUSED"
+    static let oauthScopes = "email openid profile offline_access"
+    static let authProxyBaseURL = URL(
+        string: "https://REPLACE_WITH_PROJECT.supabase.co/functions/v1/growthzone-auth"
+    )!
     static let authCallbackScheme = "wkcc-perks"
     static let authCallbackHost = "auth"
 
-    static let useMockAuth = true
-    static let mockAuthDelaySeconds: UInt64 = 1_200_000_000 // 1.2s
-
+    static var growthZoneHostURL: URL { URL(string: growthZoneHost)! }
+    static var growthZoneAuthorizeURL: URL {
+        growthZoneHostURL.appending(path: "oauth/authorize")
+    }
     static var authCallbackURL: URL {
         URL(string: "\(authCallbackScheme)://\(authCallbackHost)/callback")!
     }
+
+    // MARK: - Auth mode
+
+    static let useMockAuth = false
+    static let useMockAdminAccount = false
+    static let mockAuthDelaySeconds: UInt64 = 1_200_000_000 // 1.2s
+
+    /// Fixed OTP for local/mock account linking. No email is sent in mock mode.
+    static let mockLoginCode = "123123"
 }

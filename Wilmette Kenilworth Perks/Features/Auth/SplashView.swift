@@ -13,19 +13,16 @@ struct SplashView: View {
                     .scaleEffect(isAnimating ? 1.0 : 0.92)
                     .opacity(isAnimating ? 1.0 : 0.6)
 
+                Rectangle()
+                    .fill(WKCCColors.accent)
+                    .frame(width: 48, height: 3)
+                
                 VStack(spacing: WKCCSpacing.xs) {
                     Text(AppConfig.appDisplayName.uppercased())
-                        .font(WKCCTypography.brandCaps)
+                        .font(WKCCTypography.headline)
                         .foregroundStyle(WKCCColors.primary)
                         .tracking(1)
 
-                    Rectangle()
-                        .fill(WKCCColors.accent)
-                        .frame(width: 48, height: 3)
-
-                    Text("Member Perks")
-                        .font(WKCCTypography.callout)
-                        .foregroundStyle(WKCCColors.textSecondary)
                 }
             }
             .padding(WKCCSpacing.xl)

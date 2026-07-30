@@ -2,6 +2,11 @@ import SwiftUI
 
 struct BusinessesListView: View {
     @State private var viewModel = BusinessesListViewModel()
+    @State private var isFilterSheetPresented = false
+
+    private var hasActiveFilters: Bool {
+        viewModel.selectedCategory != nil
+    }
 
     var body: some View {
         Group {
@@ -18,14 +23,33 @@ struct BusinessesListView: View {
             }
         }
         .navigationTitle("Businesses")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isFilterSheetPresented = true
+                } label: {
+                    Image(systemName: hasActiveFilters
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel("Filters")
+            }
+        }
+        .sheet(isPresented: $isFilterSheetPresented) {
+            ListFilterSheet(selectedCategory: $viewModel.selectedCategory)
+        }
         .searchable(text: $viewModel.searchText, prompt: "Search businesses")
         .refreshable {
             await viewModel.load()
         }
         .task {
             await viewModel.load()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .businessLogoDidChange)) { _ in
+            Task { await viewModel.load() }
         }
         .navigationDestination(for: ChamberBusiness.self) { business in
             BusinessDetailView(businessId: business.id)
@@ -34,14 +58,12 @@ struct BusinessesListView: View {
 
     private var businessList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
+            LazyVStack(alignment: .leading, spacing: WKCCSpacing.md) {
                 if let error = viewModel.errorMessage {
                     ErrorBanner(message: error) {
                         viewModel.dismissError()
                     }
                 }
-
-                categoryBar
 
                 ForEach(viewModel.filteredBusinesses) { business in
                     NavigationLink(value: business) {
@@ -53,37 +75,6 @@ struct BusinessesListView: View {
             .padding(WKCCSpacing.md)
         }
         .wkccPageBackground()
-    }
-
-    private var categoryBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: WKCCSpacing.xs) {
-                Button {
-                    viewModel.selectedCategory = nil
-                } label: {
-                    Text("All")
-                        .font(WKCCTypography.captionBold)
-                        .padding(.horizontal, WKCCSpacing.sm)
-                        .padding(.vertical, WKCCSpacing.xs)
-                        .background(viewModel.selectedCategory == nil ? WKCCColors.primary : WKCCColors.cardBackground)
-                        .foregroundStyle(viewModel.selectedCategory == nil ? WKCCColors.textOnPrimary : WKCCColors.textPrimary)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(WKCCColors.primary.opacity(viewModel.selectedCategory == nil ? 0 : 0.15), lineWidth: 1)
-                        )
-                }
-
-                ForEach(DealCategory.allCases) { category in
-                    CategoryChip(
-                        category: category,
-                        isSelected: viewModel.selectedCategory == category
-                    ) {
-                        viewModel.selectedCategory = category
-                    }
-                }
-            }
-        }
     }
 }
 

@@ -10,11 +10,25 @@ struct AuthSession: Codable, Equatable {
         guard let expiresAt else { return false }
         return expiresAt < Date()
     }
+
+    /// True when the access token is within `seconds` of expiry (or already expired).
+    func isExpiring(within seconds: TimeInterval) -> Bool {
+        guard let expiresAt else { return false }
+        return expiresAt.addingTimeInterval(-seconds) <= Date()
+    }
+}
+
+struct LoginResult: Equatable {
+    let session: AuthSession
+    /// True when this email has never completed a WKCC Perks link before.
+    let isFirstLink: Bool
 }
 
 enum AuthError: LocalizedError {
     case cancelled
-    case invalidCallback
+    case invalidCode
+    case codeExpired
+    case rateLimited
     case sessionExpired
     case membershipInactive
     case underlying(Error)
@@ -23,8 +37,12 @@ enum AuthError: LocalizedError {
         switch self {
         case .cancelled:
             "Sign in was cancelled."
-        case .invalidCallback:
-            "We couldn't complete sign in. Please try again."
+        case .invalidCode:
+            "That code is incorrect. Please try again."
+        case .codeExpired:
+            "That code has expired. Request a new one."
+        case .rateLimited:
+            "Too many attempts. Please wait and request a new code."
         case .sessionExpired:
             "Your session has expired. Please sign in again."
         case .membershipInactive:
@@ -36,8 +54,11 @@ enum AuthError: LocalizedError {
 }
 
 protocol AuthServicing {
-    func startLogin() async throws -> AuthSession
+    func requestLoginCode(email: String) async throws
+    func verifyLoginCode(email: String, code: String) async throws -> LoginResult
     func restoreSession() async -> AuthSession?
+    func refreshSession(_ session: AuthSession) async throws -> AuthSession
     func signOut() async
-    func openPasswordReset() async
+    /// Uploads a business logo for the signed-in member's company and returns the updated profile.
+    func uploadCompanyLogo(imageData: Data, contentType: String) async throws -> MemberProfile
 }

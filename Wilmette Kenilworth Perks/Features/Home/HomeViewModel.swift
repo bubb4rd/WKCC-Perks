@@ -32,6 +32,11 @@ final class HomeViewModel {
         featuredDeals.first ?? activeDeals.first
     }
 
+    var spotlightImageURL: URL? {
+        guard let deal = spotlightDeal else { return nil }
+        return businesses.first(where: { $0.id == deal.businessId })?.logoURL
+    }
+
     var expiringSoonDeals: [DealSummary] {
         activeDeals.filter(\.isExpiringSoon)
     }

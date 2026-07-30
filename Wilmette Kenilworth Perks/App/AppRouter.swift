@@ -8,7 +8,7 @@ struct AppRouter: View {
             switch authManager.flowState {
             case .launching:
                 SplashView()
-            case .unauthenticated, .authenticating:
+            case .unauthenticated, .authenticating, .confirmingLink:
                 LoginView()
             case .authenticated:
                 MainTabView()
@@ -23,6 +23,12 @@ struct AppRouter: View {
         .animation(.easeInOut(duration: 0.3), value: authManager.flowState)
         .task {
             await authManager.bootstrap()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .memberSessionDidRefresh)) { _ in
+            authManager.syncSessionFromKeychain()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .memberSessionDidExpire)) { _ in
+            authManager.handleSessionExpiredFromKeychain()
         }
     }
 }
@@ -52,6 +58,7 @@ struct ErrorStateView: View {
                 .padding(.horizontal, WKCCSpacing.xl)
         }
         .padding(WKCCSpacing.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .wkccPageBackground()
     }
 }

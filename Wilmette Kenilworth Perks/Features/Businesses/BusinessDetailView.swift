@@ -6,6 +6,7 @@ struct BusinessDetailView: View {
     @State private var business: ChamberBusiness?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var isAboutExpanded = false
 
     private let businessService: any BusinessServicing = AppDependencies.shared.businessService
 
@@ -23,10 +24,20 @@ struct BusinessDetailView: View {
                 )
             }
         }
-        .navigationTitle(business?.name ?? "Business")
+        .navigationTitle("Business Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            if let business {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: shareItem(for: business)) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share business")
+                }
+            }
+        }
         .task {
             await load()
         }
@@ -47,73 +58,146 @@ struct BusinessDetailView: View {
     }
 
     private func businessContent(_ business: ChamberBusiness) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
-                headerSection(business)
+        let activeDeals = business.activeDeals.filter { !$0.isExpired }
 
-                if let description = business.fullDescription {
-                    aboutSection(description)
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: WKCCSpacing.xl) {
+                BusinessDetailHeroImage(business: business)
+
+                VStack(alignment: .leading, spacing: WKCCSpacing.md) {
+                    headerSection(business)
+                    contactSection(business)
                 }
 
-                if !business.activeDeals.filter({ !$0.isExpired }).isEmpty {
-                    dealsSection(business)
+                if let about = business.aboutText {
+                    aboutSection(about)
                 }
 
-                contactSection(business)
-
-                if let notes = business.redemptionNotes {
-                    redemptionNotesSection(notes)
-                }
+                dealsSection(activeDeals)
             }
-            .padding(WKCCSpacing.md)
+            .padding(.horizontal, WKCCSpacing.md)
+            .padding(.top, WKCCSpacing.lg)
+            .padding(.bottom, WKCCSpacing.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .wkccPageBackground()
     }
 
     private func headerSection(_ business: ChamberBusiness) -> some View {
-        HStack(spacing: WKCCSpacing.md) {
-            BusinessLogoPlaceholder(category: business.category, size: 72)
+        Text(business.name)
+            .font(.system(.title, design: .default).weight(.bold))
+            .foregroundStyle(WKCCColors.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
-                Text(business.name)
-                    .font(WKCCTypography.title)
+    @ViewBuilder
+    private func contactSection(_ business: ChamberBusiness) -> some View {
+        let hasContact = business.address != nil
+            || business.phone != nil
+            || business.websiteURL != nil
+            || !(business.email?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            || business.hasMapCoordinates
 
-                Text(business.category.rawValue)
-                    .font(WKCCTypography.callout)
-                    .foregroundStyle(WKCCColors.accent)
+        if hasContact {
+            VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+                Text("Contact")
+                    .font(WKCCTypography.headline)
+                    .foregroundStyle(WKCCColors.textPrimary)
 
-                if business.isChamberPartner {
-                    BadgeLabel(text: "Chamber Partner", color: WKCCColors.primary)
+                if let address = business.address {
+                    contactRow(icon: "mappin.and.ellipse", text: address)
+                }
+
+                if let phone = business.phone {
+                    Button {
+                        openPhone(phone)
+                    } label: {
+                        contactRow(icon: "phone", text: phone)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let website = business.websiteURL {
+                    Button {
+                        UIApplication.shared.open(website)
+                    } label: {
+                        contactRow(icon: "globe", text: website.host ?? website.absoluteString)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let email = business.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !email.isEmpty
+                {
+                    Button {
+                        openEmail(email)
+                    } label: {
+                        contactRow(icon: "envelope", text: email)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if business.hasMapCoordinates {
+                    Button {
+                        openInMaps(business)
+                    } label: {
+                        contactRow(icon: "map", text: "Open in Maps")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func aboutSection(_ description: String) -> some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
             Text("About")
                 .font(WKCCTypography.headline)
+                .foregroundStyle(WKCCColors.textPrimary)
 
             Text(description)
                 .font(WKCCTypography.body)
                 .foregroundStyle(WKCCColors.textSecondary)
+                .lineLimit(isAboutExpanded ? nil : 4)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if description.count > 160 || description.contains("\n") {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isAboutExpanded.toggle()
+                    }
+                } label: {
+                    Text(isAboutExpanded ? "Show Less" : "Read More")
+                        .font(WKCCTypography.callout.weight(.semibold))
+                        .foregroundStyle(WKCCColors.primary)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .padding(WKCCSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .wkccCardStyle()
     }
 
-    private func dealsSection(_ business: ChamberBusiness) -> some View {
+    private func dealsSection(_ deals: [DealSummary]) -> some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
             Text("Current Perks")
                 .font(WKCCTypography.headline)
+                .foregroundStyle(WKCCColors.textPrimary)
 
-            ForEach(business.activeDeals.filter { !$0.isExpired }) { deal in
-                NavigationLink(value: deal) {
-                    DealCard(deal: deal)
+            if deals.isEmpty {
+                Text("No active perks right now.")
+                    .font(WKCCTypography.body)
+                    .foregroundStyle(WKCCColors.textSecondary)
+            } else {
+                ForEach(deals) { deal in
+                    NavigationLink(value: deal) {
+                        DealCard(deal: deal)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .navigationDestination(for: DealSummary.self) { deal in
@@ -121,64 +205,125 @@ struct BusinessDetailView: View {
         }
     }
 
-    private func contactSection(_ business: ChamberBusiness) -> some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            Text("Contact")
-                .font(WKCCTypography.headline)
-
-            if let address = business.address {
-                contactRow(icon: "mappin.and.ellipse", text: address)
-            }
-
-            if let phone = business.phone {
-                Button {
-                    if let url = URL(string: "tel:\(phone.filter { $0.isNumber })") {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    contactRow(icon: "phone", text: phone)
-                }
-            }
-
-            if let website = business.websiteURL {
-                Button {
-                    UIApplication.shared.open(website)
-                } label: {
-                    contactRow(icon: "globe", text: website.host ?? "Website")
-                }
-            }
-        }
-        .padding(WKCCSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .wkccCardStyle()
-    }
-
+    @ViewBuilder
     private func contactRow(icon: String, text: String) -> some View {
         HStack(spacing: WKCCSpacing.sm) {
             Image(systemName: icon)
                 .foregroundStyle(WKCCColors.primary)
                 .frame(width: 24)
+
             Text(text)
                 .font(WKCCTypography.callout)
-                .foregroundStyle(WKCCColors.textPrimary)
-            Spacer()
+                .foregroundStyle(WKCCColors.textSecondary)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
         }
     }
 
-    private func redemptionNotesSection(_ notes: String) -> some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            Label("Redemption Notes", systemImage: "info.circle")
-                .font(WKCCTypography.headline)
-                .foregroundStyle(WKCCColors.warning)
-
-            Text(notes)
-                .font(WKCCTypography.callout)
-                .foregroundStyle(WKCCColors.textSecondary)
+    private func openPhone(_ phone: String) {
+        if let url = URL(string: "tel:\(phone.filter(\.isNumber))") {
+            UIApplication.shared.open(url)
         }
-        .padding(WKCCSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WKCCColors.warning.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
+    }
+
+    private func openEmail(_ email: String) {
+        if let url = URL(string: "mailto:\(email)") {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func openInMaps(_ business: ChamberBusiness) {
+        guard let latitude = business.latitude, let longitude = business.longitude else { return }
+        var components = URLComponents(string: "https://maps.apple.com/")!
+        components.queryItems = [
+            URLQueryItem(name: "ll", value: "\(latitude),\(longitude)"),
+            URLQueryItem(name: "q", value: business.name),
+        ]
+        if let url = components.url {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func shareItem(for business: ChamberBusiness) -> String {
+        if let website = business.websiteURL {
+            return website.absoluteString
+        }
+
+        var parts = [business.name]
+        if let address = business.address {
+            parts.append(address)
+        } else if let email = business.email {
+            parts.append(email)
+        }
+        return parts.joined(separator: "\n")
+    }
+}
+
+// MARK: - Hero
+
+private struct BusinessDetailHeroImage: View {
+    let business: ChamberBusiness
+
+    private let heroHeight: CGFloat = 260
+    private let cornerRadius = WKCCRadius.xl
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: heroHeight)
+            .overlay {
+                heroImage
+            }
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        Color.black.opacity(0.18),
+                        Color.black.opacity(0.42)
+                    ],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+            }
+            .compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var heroImage: some View {
+        if let imageURL = business.logoURL {
+            AsyncImage(url: imageURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                        .clipped()
+                case .failure, .empty:
+                    placeholderImage
+                @unknown default:
+                    placeholderImage
+                }
+            }
+        } else {
+            placeholderImage
+        }
+    }
+
+    private var placeholderImage: some View {
+        ZStack {
+            WKCCColors.accent.opacity(0.18)
+
+            Image("WKCCLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 160)
+                .padding(32)
+                .accessibilityLabel(AppConfig.chamberName)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
     }
 }
 

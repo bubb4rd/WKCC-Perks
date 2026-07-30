@@ -128,10 +128,12 @@ struct HelpSupportView: View {
                 contactRow(icon: "globe", label: AppConfig.chamberWebsiteURL.absoluteString)
             }
 
-            Button {
-                UIApplication.shared.open(AppConfig.growthZonePasswordResetURL)
-            } label: {
-                contactRow(icon: "key.fill", label: "Reset Password")
+            if let emailURL = AppConfig.supportEmailURL {
+                Button {
+                    UIApplication.shared.open(emailURL)
+                } label: {
+                    contactRow(icon: "envelope.fill", label: "Email chamber support")
+                }
             }
         }
     }

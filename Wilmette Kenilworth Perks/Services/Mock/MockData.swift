@@ -6,10 +6,13 @@ enum MockData {
         firstName: "Sarah",
         lastName: "Mitchell",
         email: "sarah.mitchell@example.com",
+        phone: nil,
+        address: nil,
         membershipTier: .gold,
         membershipStatus: .active,
         companyId: "biz-003",
         companyName: "North Shore Financial Group",
+        companyLogoURL: nil,
         memberSince: Calendar.current.date(from: DateComponents(year: 2019, month: 3, day: 15)),
         entitlements: .fullMember
     )
@@ -21,15 +24,45 @@ enum MockData {
         member: sampleMember
     )
 
+    static let adminMember = MemberProfile(
+        id: "admin-001",
+        firstName: "Sara Jane",
+        lastName: "Abbott",
+        email: "executivedirector@wilmettekenilworth.com",
+        phone: nil,
+        address: nil,
+        membershipTier: .chamber,
+        membershipStatus: .active,
+        companyId: nil,
+        companyName: "Wilmette/Kenilworth Chamber of Commerce",
+        companyLogoURL: nil,
+        memberSince: Calendar.current.date(from: DateComponents(year: 2015, month: 1, day: 1)),
+        entitlements: .chamberAdmin
+    )
+
+    static let adminSession = AuthSession(
+        accessToken: "mock-admin-access-token",
+        refreshToken: "mock-admin-refresh-token",
+        expiresAt: Calendar.current.date(byAdding: .day, value: 30, to: Date()),
+        member: adminMember
+    )
+
+    static var mockSession: AuthSession {
+        AppConfig.useMockAdminAccount ? adminSession : sampleSession
+    }
+
     static let inactiveMember = MemberProfile(
         id: "member-002",
         firstName: "James",
         lastName: "Chen",
         email: "james.chen@example.com",
+        phone: nil,
+        address: nil,
         membershipTier: .basic,
         membershipStatus: .expired,
         companyId: nil,
         companyName: nil,
+        companyLogoURL: nil,
         memberSince: nil,
         entitlements: .restricted
     )
@@ -47,7 +80,7 @@ enum MockData {
             businessId: "biz-001",
             businessName: "Central Street Café",
             shortDescription: "Enjoy 20% off any dine-in or takeout order.",
-            category: .dining,
+            category: .restaurantsFoodBeverages,
             expirationDate: daysFromNow(45),
             isFeatured: true,
             membersOnly: true
@@ -58,7 +91,7 @@ enum MockData {
             businessId: "biz-002",
             businessName: "Kenilworth Books & Gifts",
             shortDescription: "Receive a complimentary gift with any purchase over $50.",
-            category: .retail,
+            category: .shoppingSpecialtyRetail,
             expirationDate: daysFromNow(60),
             isFeatured: true,
             membersOnly: true
@@ -69,7 +102,7 @@ enum MockData {
             businessId: "biz-003",
             businessName: "North Shore Financial Group",
             shortDescription: "Free 30-minute financial planning consultation for chamber members.",
-            category: .services,
+            category: .financeInsurance,
             expirationDate: daysFromNow(90),
             isFeatured: false,
             membersOnly: true
@@ -80,7 +113,7 @@ enum MockData {
             businessId: "biz-004",
             businessName: "Wilmette Community Center",
             shortDescription: "Complimentary admission to the monthly chamber networking breakfast.",
-            category: .events,
+            category: .governmentEducationIndividuals,
             expirationDate: daysFromNow(12),
             isFeatured: true,
             membersOnly: true
@@ -91,7 +124,7 @@ enum MockData {
             businessId: "biz-005",
             businessName: "Lakeview Wellness Studio",
             shortDescription: "New members save 15% on yoga classes, massage, and wellness services.",
-            category: .healthWellness,
+            category: .healthCare,
             expirationDate: daysFromNow(30),
             isFeatured: false,
             membersOnly: true
@@ -102,7 +135,7 @@ enum MockData {
             businessId: "biz-001",
             businessName: "Central Street Café",
             shortDescription: "BOGO on any pastry with purchase of a beverage.",
-            category: .dining,
+            category: .restaurantsFoodBeverages,
             expirationDate: daysFromNow(8),
             isFeatured: false,
             membersOnly: true
@@ -113,8 +146,63 @@ enum MockData {
             businessId: "biz-006",
             businessName: "GreenLeaf Landscaping",
             shortDescription: "Chamber members receive 10% off seasonal lawn care packages.",
-            category: .services,
+            category: .homeGarden,
             expirationDate: daysFromNow(120),
+            isFeatured: false,
+            membersOnly: true
+        ),
+        DealSummary(
+            id: "deal-008",
+            title: "Complimentary Haircut Consultation",
+            businessId: "biz-007",
+            businessName: "Harbor Style Salon",
+            shortDescription: "Free style consultation for chamber members.",
+            category: .personalServicesCare,
+            expirationDate: daysFromNow(40),
+            isFeatured: false,
+            membersOnly: true
+        ),
+        DealSummary(
+            id: "deal-009",
+            title: "1 Hour Free Legal Review",
+            businessId: "biz-008",
+            businessName: "Ridge Legal Advisors",
+            shortDescription: "Complimentary one-hour contract review for members.",
+            category: .businessProfessionalServices,
+            expirationDate: daysFromNow(75),
+            isFeatured: true,
+            membersOnly: true
+        ),
+        DealSummary(
+            id: "deal-010",
+            title: "15% Off Brand Packages",
+            businessId: "biz-009",
+            businessName: "Shoreline Creative",
+            shortDescription: "Save 15% on logo and brand identity packages.",
+            category: .advertisingMedia,
+            expirationDate: daysFromNow(55),
+            isFeatured: false,
+            membersOnly: true
+        ),
+        DealSummary(
+            id: "deal-011",
+            title: "Member Referral Bonus",
+            businessId: "biz-010",
+            businessName: "North Shore Civic League",
+            shortDescription: "Earn a thank-you gift when you refer a new chamber member.",
+            category: .other,
+            expirationDate: daysFromNow(100),
+            isFeatured: false,
+            membersOnly: true
+        ),
+        DealSummary(
+            id: "deal-expired",
+            title: "Past Season Special",
+            businessId: "biz-002",
+            businessName: "Kenilworth Books & Gifts",
+            shortDescription: "This offer has ended.",
+            category: .shoppingSpecialtyRetail,
+            expirationDate: daysFromNow(-10),
             isFeatured: false,
             membersOnly: true
         )
@@ -132,7 +220,7 @@ enum MockData {
             redemptionCode: nil,
             startDate: daysFromNow(-30),
             expirationDate: daysFromNow(45),
-            category: .dining,
+            category: .restaurantsFoodBeverages,
             imageURL: nil,
             membersOnly: true,
             isFeatured: true
@@ -148,7 +236,7 @@ enum MockData {
             redemptionCode: "WKCC-GIFT",
             startDate: daysFromNow(-14),
             expirationDate: daysFromNow(60),
-            category: .retail,
+            category: .shoppingSpecialtyRetail,
             imageURL: nil,
             membersOnly: true,
             isFeatured: true
@@ -164,7 +252,7 @@ enum MockData {
             redemptionCode: "WKCC-CONSULT",
             startDate: daysFromNow(-60),
             expirationDate: daysFromNow(90),
-            category: .services,
+            category: .financeInsurance,
             imageURL: nil,
             membersOnly: true,
             isFeatured: false
@@ -180,7 +268,7 @@ enum MockData {
             redemptionCode: nil,
             startDate: daysFromNow(-7),
             expirationDate: daysFromNow(12),
-            category: .events,
+            category: .governmentEducationIndividuals,
             imageURL: nil,
             membersOnly: true,
             isFeatured: true
@@ -196,7 +284,7 @@ enum MockData {
             redemptionCode: nil,
             startDate: daysFromNow(-20),
             expirationDate: daysFromNow(30),
-            category: .healthWellness,
+            category: .healthCare,
             imageURL: nil,
             membersOnly: true,
             isFeatured: false
@@ -212,7 +300,7 @@ enum MockData {
             redemptionCode: nil,
             startDate: daysFromNow(-5),
             expirationDate: daysFromNow(8),
-            category: .dining,
+            category: .restaurantsFoodBeverages,
             imageURL: nil,
             membersOnly: true,
             isFeatured: false
@@ -228,7 +316,87 @@ enum MockData {
             redemptionCode: "WKCC-LAWN10",
             startDate: daysFromNow(-10),
             expirationDate: daysFromNow(120),
-            category: .services,
+            category: .homeGarden,
+            imageURL: nil,
+            membersOnly: true,
+            isFeatured: false
+        ),
+        DealDetail(
+            id: "deal-008",
+            title: "Complimentary Haircut Consultation",
+            businessId: "biz-007",
+            businessName: "Harbor Style Salon",
+            description: "Harbor Style Salon offers a complimentary style consultation for chamber members exploring a new look.",
+            terms: "Consultation only. Haircut and color priced separately.",
+            redemptionInstructions: "Book online or by phone and mention your WKCC membership.",
+            redemptionCode: nil,
+            startDate: daysFromNow(-15),
+            expirationDate: daysFromNow(40),
+            category: .personalServicesCare,
+            imageURL: nil,
+            membersOnly: true,
+            isFeatured: false
+        ),
+        DealDetail(
+            id: "deal-009",
+            title: "1 Hour Free Legal Review",
+            businessId: "biz-008",
+            businessName: "Ridge Legal Advisors",
+            description: "Ridge Legal Advisors provides chamber members with a complimentary one-hour review of contracts or business agreements.",
+            terms: "New clients only. Appointment required.",
+            redemptionInstructions: "Call to schedule and reference your WKCC membership.",
+            redemptionCode: "WKCC-LEGAL",
+            startDate: daysFromNow(-20),
+            expirationDate: daysFromNow(75),
+            category: .businessProfessionalServices,
+            imageURL: nil,
+            membersOnly: true,
+            isFeatured: true
+        ),
+        DealDetail(
+            id: "deal-010",
+            title: "15% Off Brand Packages",
+            businessId: "biz-009",
+            businessName: "Shoreline Creative",
+            description: "Shoreline Creative designs logos, websites, and campaign assets for local businesses. Chamber members save 15% on brand identity packages.",
+            terms: "Applies to new projects booked during the offer window.",
+            redemptionInstructions: "Mention WKCC membership in your project inquiry.",
+            redemptionCode: nil,
+            startDate: daysFromNow(-10),
+            expirationDate: daysFromNow(55),
+            category: .advertisingMedia,
+            imageURL: nil,
+            membersOnly: true,
+            isFeatured: false
+        ),
+        DealDetail(
+            id: "deal-011",
+            title: "Member Referral Bonus",
+            businessId: "biz-010",
+            businessName: "North Shore Civic League",
+            description: "Refer a new chamber member and receive a thank-you gift from the North Shore Civic League.",
+            terms: "Referral must join as a paying member. One gift per successful referral.",
+            redemptionInstructions: "Have your referral mention your name when joining the chamber.",
+            redemptionCode: nil,
+            startDate: daysFromNow(-30),
+            expirationDate: daysFromNow(100),
+            category: .other,
+            imageURL: nil,
+            membersOnly: true,
+            isFeatured: false
+        ),
+        DealDetail(
+            id: "deal-expired",
+            title: "Past Season Special",
+            businessId: "biz-002",
+            businessName: "Kenilworth Books & Gifts",
+            description: "This seasonal member perk has ended. Check back for new offers from Kenilworth Books & Gifts.",
+            terms: nil,
+            redemptionInstructions: "This perk is no longer active.",
+            redemptionCode: nil,
+            startDate: daysFromNow(-90),
+            expirationDate: daysFromNow(-10),
+            category: .shoppingSpecialtyRetail,
             imageURL: nil,
             membersOnly: true,
             isFeatured: false
@@ -239,13 +407,17 @@ enum MockData {
         ChamberBusiness(
             id: "biz-001",
             name: "Central Street Café",
-            category: .dining,
+            category: .restaurantsFoodBeverages,
             shortDescription: "Neighborhood café serving breakfast, lunch, and locally roasted coffee.",
             fullDescription: "A Wilmette favorite since 2008, Central Street Café features seasonal menus, house-made pastries, and a patio perfect for warm-weather dining.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/central-street-cafe"),
             phone: "(847) 256-1234",
             address: "1200 Central St, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-001" },
             redemptionNotes: "Please show your member perk before ordering."
@@ -253,13 +425,17 @@ enum MockData {
         ChamberBusiness(
             id: "biz-002",
             name: "Kenilworth Books & Gifts",
-            category: .retail,
+            category: .shoppingSpecialtyRetail,
             shortDescription: "Independent bookstore and gift shop in the heart of Kenilworth.",
             fullDescription: "Kenilworth Books & Gifts carries bestsellers, children's books, greeting cards, and gifts from local artisans.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/kenilworth-books"),
             phone: "(847) 251-5678",
             address: "545 Sheridan Rd, Kenilworth, IL 60043",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-002" },
             redemptionNotes: nil
@@ -267,13 +443,17 @@ enum MockData {
         ChamberBusiness(
             id: "biz-003",
             name: "North Shore Financial Group",
-            category: .services,
+            category: .financeInsurance,
             shortDescription: "Financial planning and wealth management for individuals and businesses.",
             fullDescription: "North Shore Financial Group provides comprehensive financial planning, investment management, and retirement strategies tailored to North Shore families and businesses.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/north-shore-financial"),
             phone: "(847) 256-9012",
             address: "800 Green Bay Rd, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-003" },
             redemptionNotes: "Appointments required for all consultations."
@@ -281,13 +461,17 @@ enum MockData {
         ChamberBusiness(
             id: "biz-004",
             name: "Wilmette Community Center",
-            category: .events,
+            category: .governmentEducationIndividuals,
             shortDescription: "Community hub hosting chamber events and local gatherings.",
             fullDescription: "The Wilmette Community Center hosts chamber networking events, workshops, and community programs throughout the year.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/wilmette-community"),
             phone: "(847) 256-3456",
             address: "615 Ridge Rd, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-004" },
             redemptionNotes: nil
@@ -295,13 +479,17 @@ enum MockData {
         ChamberBusiness(
             id: "biz-005",
             name: "Lakeview Wellness Studio",
-            category: .healthWellness,
+            category: .healthCare,
             shortDescription: "Yoga, pilates, massage, and holistic wellness services.",
             fullDescription: "Lakeview Wellness Studio offers group fitness classes, private training, massage therapy, and nutrition coaching in a serene lakefront setting.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/lakeview-wellness"),
             phone: "(847) 251-7890",
             address: "2100 Lake Ave, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-005" },
             redemptionNotes: nil
@@ -309,16 +497,242 @@ enum MockData {
         ChamberBusiness(
             id: "biz-006",
             name: "GreenLeaf Landscaping",
-            category: .services,
+            category: .homeGarden,
             shortDescription: "Professional landscaping and lawn care for North Shore homes.",
             fullDescription: "GreenLeaf Landscaping provides design, installation, and maintenance services with an emphasis on sustainable practices and native plantings.",
             logoURL: nil,
             websiteURL: URL(string: "https://example.com/greenleaf"),
             phone: "(847) 256-4567",
             address: "450 Skokie Blvd, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
             isChamberPartner: true,
             activeDeals: dealSummaries.filter { $0.businessId == "biz-006" },
             redemptionNotes: "Discount applies to new seasonal contracts."
+        ),
+        ChamberBusiness(
+            id: "biz-007",
+            name: "Harbor Style Salon",
+            category: .personalServicesCare,
+            shortDescription: "Full-service salon for cuts, color, and styling.",
+            fullDescription: "Harbor Style Salon provides haircuts, color treatments, and bridal styling for the North Shore community.",
+            logoURL: nil,
+            websiteURL: URL(string: "https://example.com/harbor-style"),
+            phone: "(847) 256-2222",
+            address: "330 Linden Ave, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
+            isChamberPartner: true,
+            activeDeals: dealSummaries.filter { $0.businessId == "biz-007" },
+            redemptionNotes: nil
+        ),
+        ChamberBusiness(
+            id: "biz-008",
+            name: "Ridge Legal Advisors",
+            category: .businessProfessionalServices,
+            shortDescription: "Business law and contract advisory for local companies.",
+            fullDescription: "Ridge Legal Advisors helps chamber businesses with contracts, entity formation, and general counsel services.",
+            logoURL: nil,
+            websiteURL: URL(string: "https://example.com/ridge-legal"),
+            phone: "(847) 256-3333",
+            address: "1000 Skokie Blvd, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
+            isChamberPartner: true,
+            activeDeals: dealSummaries.filter { $0.businessId == "biz-008" },
+            redemptionNotes: "Appointments required."
+        ),
+        ChamberBusiness(
+            id: "biz-009",
+            name: "Shoreline Creative",
+            category: .advertisingMedia,
+            shortDescription: "Brand, web, and campaign creative for local businesses.",
+            fullDescription: "Shoreline Creative designs logos, websites, and marketing campaigns for Wilmette and Kenilworth businesses.",
+            logoURL: nil,
+            websiteURL: URL(string: "https://example.com/shoreline-creative"),
+            phone: "(847) 256-4444",
+            address: "722 12th St, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
+            isChamberPartner: true,
+            activeDeals: dealSummaries.filter { $0.businessId == "biz-009" },
+            redemptionNotes: nil
+        ),
+        ChamberBusiness(
+            id: "biz-010",
+            name: "North Shore Civic League",
+            category: .other,
+            shortDescription: "Community organization supporting local civic engagement.",
+            fullDescription: "The North Shore Civic League partners with the chamber on member outreach and community initiatives.",
+            logoURL: nil,
+            websiteURL: URL(string: "https://example.com/civic-league"),
+            phone: "(847) 256-5555",
+            address: "500 Park Ave, Wilmette, IL 60091",
+            email: nil,
+            latitude: nil,
+            longitude: nil,
+            memberSince: nil,
+            isChamberPartner: true,
+            activeDeals: dealSummaries.filter { $0.businessId == "biz-010" },
+            redemptionNotes: nil
+        )
+    ]
+
+    static let seedPromotionSubmissions: [PromotionSubmissionRecord] = [
+        PromotionSubmissionRecord(
+            id: "sub-001",
+            submittedAt: daysFromNow(-2),
+            submitterMemberId: "member-001",
+            submitterName: "Sarah Mitchell",
+            companyId: "biz-003",
+            companyName: "North Shore Financial Group",
+            status: .pending,
+            reviewedAt: nil,
+            reviewedByAdminId: nil,
+            adminNotes: nil,
+            submission: PromotionSubmission(
+                contactEmail: "sarah.mitchell@example.com",
+                contactPhone: "(847) 256-9012",
+                title: "$25 Off Tax Preparation",
+                category: .financeInsurance,
+                shortDescription: "Chamber members save $25 on individual tax preparation services.",
+                fullDescription: "North Shore Financial Group is offering WKCC members $25 off individual tax preparation for the current filing season.",
+                terms: "New tax clients only. Cannot be combined with other offers.",
+                redemptionInstructions: "Mention your WKCC membership when scheduling your appointment.",
+                redemptionCodeType: .promoCode,
+                redemptionCode: "WKCC-TAX25",
+                startDate: daysFromNow(-1),
+                endDate: daysFromNow(10)
+            )
+        ),
+        PromotionSubmissionRecord(
+            id: "sub-002",
+            submittedAt: daysFromNow(-5),
+            submitterMemberId: "member-004",
+            submitterName: "Michael Torres",
+            companyId: "biz-001",
+            companyName: "Central Street Café",
+            status: .pending,
+            reviewedAt: nil,
+            reviewedByAdminId: nil,
+            adminNotes: nil,
+            submission: PromotionSubmission(
+                contactEmail: "michael@centralstreetcafe.example.com",
+                contactPhone: "(847) 256-1234",
+                title: "Free Coffee with Breakfast",
+                category: .restaurantsFoodBeverages,
+                shortDescription: "Complimentary coffee with any breakfast entrée.",
+                fullDescription: "Enjoy a free house coffee or tea with purchase of any breakfast entrée before 11 AM.",
+                terms: "Dine-in only. One per member per visit.",
+                redemptionInstructions: "Show this perk to your server when ordering.",
+                redemptionCodeType: .none,
+                redemptionCode: "",
+                startDate: daysFromNow(-3),
+                endDate: daysFromNow(45)
+            )
+        ),
+        PromotionSubmissionRecord(
+            id: "sub-003",
+            submittedAt: daysFromNow(-14),
+            submitterMemberId: "member-005",
+            submitterName: "Emily Park",
+            companyId: "biz-002",
+            companyName: "Kenilworth Books & Gifts",
+            status: .approved,
+            reviewedAt: daysFromNow(-10),
+            reviewedByAdminId: "admin-001",
+            adminNotes: "Approved for spring campaign.",
+            submission: PromotionSubmission(
+                contactEmail: "emily@kenilworthbooks.example.com",
+                contactPhone: "(847) 251-5678",
+                title: "15% Off Children's Books",
+                category: .shoppingSpecialtyRetail,
+                shortDescription: "Save 15% on all children's books.",
+                fullDescription: "Kenilworth Books & Gifts is offering chamber members 15% off the children's books section.",
+                terms: "Excludes sale items.",
+                redemptionInstructions: "Present your member card at checkout.",
+                redemptionCodeType: .promoCode,
+                redemptionCode: "WKCC-READ15",
+                startDate: daysFromNow(-12),
+                endDate: daysFromNow(30)
+            )
+        )
+    ]
+
+    static let seedNotifications: [AppNotification] = [
+        AppNotification(
+            id: "notif-001",
+            title: "Promotion Approved",
+            message: "Your promotion \"15% Off Children's Books\" is now live for chamber members.",
+            kind: .promotionApproved,
+            audience: .member,
+            createdAt: daysFromNow(-1),
+            isRead: false,
+            recipientMemberId: "member-001",
+            relatedEntityId: "sub-003"
+        ),
+        AppNotification(
+            id: "notif-002",
+            title: "Promotion Not Approved",
+            message: "Your submission \"Spring Open House Discount\" needs updates before it can be published.",
+            kind: .promotionRejected,
+            audience: .member,
+            createdAt: daysFromNow(-4),
+            isRead: true,
+            recipientMemberId: "member-001",
+            relatedEntityId: nil
+        ),
+        AppNotification(
+            id: "notif-003",
+            title: "Perk Ending Soon",
+            message: "Your featured perk \"$25 Off Tax Preparation\" expires in 10 days.",
+            kind: .dealExpiringSoon,
+            audience: .member,
+            createdAt: daysFromNow(-2),
+            isRead: false,
+            recipientMemberId: "member-001",
+            relatedEntityId: "sub-001"
+        ),
+        AppNotification(
+            id: "notif-004",
+            title: "New Promotion Submitted",
+            message: "Sarah Mitchell submitted \"$25 Off Tax Preparation\" for review.",
+            kind: .newPromotionSubmission,
+            audience: .admin,
+            createdAt: daysFromNow(-2),
+            isRead: false,
+            recipientMemberId: nil,
+            relatedEntityId: "sub-001"
+        ),
+        AppNotification(
+            id: "notif-005",
+            title: "New Promotion Submitted",
+            message: "Michael Torres submitted \"Free Coffee with Breakfast\" for review.",
+            kind: .newPromotionSubmission,
+            audience: .admin,
+            createdAt: daysFromNow(-5),
+            isRead: false,
+            recipientMemberId: nil,
+            relatedEntityId: "sub-002"
+        ),
+        AppNotification(
+            id: "notif-006",
+            title: "Submission Reviewed",
+            message: "Emily Park's \"15% Off Children's Books\" promotion was approved and published.",
+            kind: .promotionApproved,
+            audience: .admin,
+            createdAt: daysFromNow(-10),
+            isRead: true,
+            recipientMemberId: nil,
+            relatedEntityId: "sub-003"
         )
     ]
 }
