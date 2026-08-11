@@ -18,7 +18,47 @@ type AuthContext = {
   cmId: number;
   memberId: string;
   isAdmin: boolean;
+  companyName: string;
+  submitterName: string;
 };
+
+const ACTIVE_MEMBER_STATUS = "2";
+
+const ALLOWED_CATEGORIES = new Set([
+  "Shopping and Specialty Retail",
+  "Health Care",
+  "Home and Garden",
+  "Restaurants, Food and Beverages",
+  "Government, Education and Individuals",
+  "Personal Services and Care",
+  "Business and Professional Services",
+  "Finance and Insurance",
+  "Advertising and Media",
+  "Other",
+]);
+
+const ALLOWED_REDEMPTION_TYPES = new Set([
+  "No code needed",
+  "Promo code",
+  "Barcode",
+  "QR code",
+  "Other",
+]);
+
+const MAX_TITLE = 120;
+const MAX_SHORT_DESCRIPTION = 280;
+const MAX_FULL_DESCRIPTION = 4000;
+const MAX_TERMS = 2000;
+const MAX_REDEMPTION_INSTRUCTIONS = 2000;
+const MAX_REDEMPTION_CODE = 200;
+const MAX_CONTACT_EMAIL = 254;
+const MAX_CONTACT_PHONE = 40;
+const MAX_ADMIN_NOTES = 2000;
+
+const RATE_LIMIT_SUBMISSION_MAX = 5;
+const RATE_LIMIT_SUBMISSION_WINDOW_MIN = 60;
+const RATE_LIMIT_DEVICE_TOKEN_MAX = 30;
+const RATE_LIMIT_DEVICE_TOKEN_WINDOW_MIN = 60;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -87,6 +127,123 @@ function bearerToken(req: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
+async function assertRateLimit(
+  bucket: string,
+  subject: string,
+  max: number,
+  windowMinutes: number,
+): Promise<void> {
+  const supabase = supabaseAdmin();
+  const since = new Date(Date.now() - windowMinutes * 60_000).toISOString();
+  const { count, error } = await supabase
+    .from("edge_rate_limits")
+    .select("*", { count: "exact", head: true })
+    .eq("bucket", bucket)
+    .eq("subject", subject)
+    .gte("created_at", since);
+  if (error) throw error;
+  if ((count ?? 0) >= max) {
+    throw Object.assign(
+      new Error("Too many requests. Please try again later."),
+      { status: 429 },
+    );
+  }
+  const { error: insertError } = await supabase.from("edge_rate_limits").insert({
+    bucket,
+    subject,
+  });
+  if (insertError) throw insertError;
+}
+
+function clipText(value: unknown, max: number): string {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function parseIsoDate(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function validateSubmissionFields(
+  submission: Record<string, unknown>,
+): { ok: true; fields: Record<string, string> } | { ok: false; error: string } {
+  const title = clipText(submission.title, MAX_TITLE);
+  if (!title) return { ok: false, error: "Title is required." };
+
+  const category = clipText(submission.category, 80) || "Other";
+  if (!ALLOWED_CATEGORIES.has(category)) {
+    return { ok: false, error: "Invalid category." };
+  }
+
+  const redemptionCodeType = clipText(submission.redemptionCodeType, 40) ||
+    "No code needed";
+  if (!ALLOWED_REDEMPTION_TYPES.has(redemptionCodeType)) {
+    return { ok: false, error: "Invalid redemption code type." };
+  }
+
+  const redemptionCode = clipText(submission.redemptionCode, MAX_REDEMPTION_CODE);
+  if (redemptionCodeType !== "No code needed" && !redemptionCode) {
+    return { ok: false, error: "Redemption code is required for this type." };
+  }
+
+  const startDate = parseIsoDate(submission.startDate) ?? new Date().toISOString();
+  const endDate = parseIsoDate(submission.endDate) ?? startDate;
+  if (new Date(endDate).getTime() < new Date(startDate).getTime()) {
+    return { ok: false, error: "End date must be on or after start date." };
+  }
+
+  const contactEmail = clipText(submission.contactEmail, MAX_CONTACT_EMAIL);
+  if (contactEmail && !contactEmail.includes("@")) {
+    return { ok: false, error: "Invalid contact email." };
+  }
+
+  return {
+    ok: true,
+    fields: {
+      title,
+      category,
+      shortDescription: clipText(submission.shortDescription, MAX_SHORT_DESCRIPTION),
+      fullDescription: clipText(submission.fullDescription, MAX_FULL_DESCRIPTION),
+      terms: clipText(submission.terms, MAX_TERMS),
+      redemptionInstructions: clipText(
+        submission.redemptionInstructions,
+        MAX_REDEMPTION_INSTRUCTIONS,
+      ),
+      redemptionCodeType,
+      redemptionCode: redemptionCodeType === "No code needed" ? "" : redemptionCode,
+      contactEmail,
+      contactPhone: clipText(submission.contactPhone, MAX_CONTACT_PHONE),
+      startDate,
+      endDate,
+    },
+  };
+}
+
+function isEligibleMember(row: {
+  email?: string | null;
+  status?: string | null;
+  display_flags?: string | null;
+}): boolean {
+  if (!row.email) return false;
+  if (row.status !== ACTIVE_MEMBER_STATUS) return false;
+  if ((row.display_flags ?? "").includes("DisableLogin")) return false;
+  return true;
+}
+
+function memberDisplayName(row: {
+  name?: string | null;
+  display_name?: string | null;
+  email?: string | null;
+}): string {
+  const display = (row.display_name ?? "").trim();
+  if (display) return display;
+  const name = (row.name ?? "").trim();
+  if (name) return name;
+  return (row.email ?? "Chamber Member").trim() || "Chamber Member";
+}
+
 async function requireAuth(req: Request): Promise<AuthContext> {
   const token = bearerToken(req);
   if (!token) {
@@ -101,25 +258,68 @@ async function requireAuth(req: Request): Promise<AuthContext> {
   const email = typeof payload.email === "string"
     ? payload.email.trim().toLowerCase()
     : "";
-  const cmId = typeof payload.cm_id === "number"
-    ? payload.cm_id
-    : Number(payload.sub);
-  if (!email || !Number.isFinite(cmId)) {
+  if (!email) {
     throw Object.assign(new Error("Invalid session claims."), { status: 401 });
   }
 
   const supabase = supabaseAdmin();
-  const { data: profile } = await supabase
-    .from("app_profiles")
-    .select("email, cm_id, is_chamber_admin")
-    .eq("email", email)
-    .maybeSingle();
+  const [{ data: profile }, { data: memberRows, error: memberError }] =
+    await Promise.all([
+      supabase
+        .from("app_profiles")
+        .select("email, cm_id, is_chamber_admin")
+        .eq("email", email)
+        .maybeSingle(),
+      supabase
+        .from("chamber_members")
+        .select("cm_id, name, display_name, email, status, display_flags")
+        .eq("email", email)
+        .eq("status", ACTIVE_MEMBER_STATUS)
+        .order("cm_id", { ascending: true }),
+    ]);
+
+  if (memberError) throw memberError;
+
+  const isAdmin = profile?.is_chamber_admin === true;
+  const eligible = ((memberRows ?? []) as Array<{
+    cm_id: number;
+    name: string | null;
+    display_name: string | null;
+    email: string | null;
+    status: string | null;
+    display_flags: string | null;
+  }>).filter(isEligibleMember);
+
+  const member = eligible[0] ?? null;
+  if (!member && !isAdmin) {
+    throw Object.assign(
+      new Error("Your membership is not currently active."),
+      { status: 403 },
+    );
+  }
+
+  const cmId = member?.cm_id ??
+    (typeof profile?.cm_id === "number"
+      ? profile.cm_id
+      : Number(payload.cm_id ?? payload.sub));
+  if (!Number.isFinite(cmId)) {
+    throw Object.assign(new Error("Invalid session claims."), { status: 401 });
+  }
+
+  const companyName = member
+    ? (member.name ?? "").trim() || "Chamber Member"
+    : "Chamber Member";
+  const submitterName = member
+    ? memberDisplayName(member)
+    : email;
 
   return {
     email,
     cmId,
     memberId: String(cmId),
-    isAdmin: profile?.is_chamber_admin === true,
+    isAdmin,
+    companyName,
+    submitterName,
   };
 }
 
@@ -316,36 +516,46 @@ async function handleCreateSubmission(
   auth: AuthContext,
   req: Request,
 ): Promise<Response> {
+  await assertRateLimit(
+    "submission-create",
+    auth.memberId,
+    RATE_LIMIT_SUBMISSION_MAX,
+    RATE_LIMIT_SUBMISSION_WINDOW_MIN,
+  );
+
   const body = await req.json().catch(() => null) as {
     submission?: Record<string, unknown>;
-    companyName?: string;
-    companyId?: string | null;
-    submitterName?: string;
   } | null;
 
   const submission = body?.submission;
-  if (!submission || typeof submission.title !== "string") {
+  if (!submission || typeof submission !== "object") {
     return jsonResponse({ error: "Invalid submission payload." }, 400);
   }
+
+  const validated = validateSubmissionFields(submission);
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+  const fields = validated.fields;
 
   const row = {
     submitter_member_id: auth.memberId,
     submitter_email: auth.email,
-    submitter_name: body?.submitterName?.trim() || auth.email,
-    company_id: body?.companyId ?? String(auth.cmId),
-    company_name: (body?.companyName ?? "Chamber Member").trim(),
-    contact_email: String(submission.contactEmail ?? auth.email),
-    contact_phone: String(submission.contactPhone ?? ""),
-    title: String(submission.title).trim(),
-    category: String(submission.category ?? "Other"),
-    short_description: String(submission.shortDescription ?? ""),
-    full_description: String(submission.fullDescription ?? ""),
-    terms: String(submission.terms ?? ""),
-    redemption_instructions: String(submission.redemptionInstructions ?? ""),
-    redemption_code_type: String(submission.redemptionCodeType ?? "No code needed"),
-    redemption_code: String(submission.redemptionCode ?? ""),
-    start_date: submission.startDate ?? new Date().toISOString(),
-    end_date: submission.endDate ?? new Date().toISOString(),
+    submitter_name: auth.submitterName,
+    company_id: String(auth.cmId),
+    company_name: auth.companyName,
+    contact_email: fields.contactEmail || auth.email,
+    contact_phone: fields.contactPhone,
+    title: fields.title,
+    category: fields.category,
+    short_description: fields.shortDescription,
+    full_description: fields.fullDescription,
+    terms: fields.terms,
+    redemption_instructions: fields.redemptionInstructions,
+    redemption_code_type: fields.redemptionCodeType,
+    redemption_code: fields.redemptionCode,
+    start_date: fields.startDate,
+    end_date: fields.endDate,
     status: "pending",
   };
 
@@ -397,33 +607,56 @@ async function handleUpdateSubmission(
   }
 
   const s = body?.submission ?? {};
+  const validated = validateSubmissionFields({
+    title: typeof s.title === "string" ? s.title : existing.title,
+    category: typeof s.category === "string" ? s.category : existing.category,
+    shortDescription: typeof s.shortDescription === "string"
+      ? s.shortDescription
+      : existing.short_description,
+    fullDescription: typeof s.fullDescription === "string"
+      ? s.fullDescription
+      : existing.full_description,
+    terms: typeof s.terms === "string" ? s.terms : existing.terms,
+    redemptionInstructions: typeof s.redemptionInstructions === "string"
+      ? s.redemptionInstructions
+      : existing.redemption_instructions,
+    redemptionCodeType: typeof s.redemptionCodeType === "string"
+      ? s.redemptionCodeType
+      : existing.redemption_code_type,
+    redemptionCode: typeof s.redemptionCode === "string"
+      ? s.redemptionCode
+      : existing.redemption_code,
+    startDate: s.startDate ?? existing.start_date,
+    endDate: s.endDate ?? existing.end_date,
+    contactEmail: typeof s.contactEmail === "string"
+      ? s.contactEmail
+      : existing.contact_email,
+    contactPhone: typeof s.contactPhone === "string"
+      ? s.contactPhone
+      : existing.contact_phone,
+  });
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+  const fields = validated.fields;
+
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
+    title: fields.title,
+    category: fields.category,
+    short_description: fields.shortDescription,
+    full_description: fields.fullDescription,
+    terms: fields.terms,
+    redemption_instructions: fields.redemptionInstructions,
+    redemption_code_type: fields.redemptionCodeType,
+    redemption_code: fields.redemptionCode,
+    start_date: fields.startDate,
+    end_date: fields.endDate,
+    contact_email: fields.contactEmail || existing.contact_email,
+    contact_phone: fields.contactPhone,
   };
-  if (typeof s.title === "string") updates.title = s.title.trim();
-  if (typeof s.category === "string") updates.category = s.category;
-  if (typeof s.shortDescription === "string") {
-    updates.short_description = s.shortDescription;
-  }
-  if (typeof s.fullDescription === "string") {
-    updates.full_description = s.fullDescription;
-  }
-  if (typeof s.terms === "string") updates.terms = s.terms;
-  if (typeof s.redemptionInstructions === "string") {
-    updates.redemption_instructions = s.redemptionInstructions;
-  }
-  if (typeof s.redemptionCodeType === "string") {
-    updates.redemption_code_type = s.redemptionCodeType;
-  }
-  if (typeof s.redemptionCode === "string") {
-    updates.redemption_code = s.redemptionCode;
-  }
-  if (s.startDate) updates.start_date = s.startDate;
-  if (s.endDate) updates.end_date = s.endDate;
-  if (typeof s.contactEmail === "string") updates.contact_email = s.contactEmail;
-  if (typeof s.contactPhone === "string") updates.contact_phone = s.contactPhone;
   if (auth.isAdmin && body?.adminNotes !== undefined) {
-    updates.admin_notes = body.adminNotes;
+    updates.admin_notes = clipText(body.adminNotes, MAX_ADMIN_NOTES) || null;
   }
 
   const { data, error } = await supabase
@@ -534,7 +767,7 @@ async function handleRejectSubmission(
     return jsonResponse({ error: "This submission can no longer be updated." }, 409);
   }
 
-  const notes = body?.notes?.trim();
+  const notes = body?.notes?.trim().slice(0, 2000);
   const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("promotion_submissions")
@@ -628,13 +861,33 @@ async function handleRegisterDeviceToken(
   auth: AuthContext,
   req: Request,
 ): Promise<Response> {
+  await assertRateLimit(
+    "device-token-register",
+    auth.memberId,
+    RATE_LIMIT_DEVICE_TOKEN_MAX,
+    RATE_LIMIT_DEVICE_TOKEN_WINDOW_MIN,
+  );
+
   const body = await req.json().catch(() => null) as { token?: string } | null;
   const token = body?.token?.trim() ?? "";
-  if (!token || token.length < 32) {
+  if (!/^[0-9a-fA-F]{64,200}$/.test(token)) {
     return jsonResponse({ error: "Invalid device token." }, 400);
   }
 
   const supabase = supabaseAdmin();
+  const { data: existing, error: existingError } = await supabase
+    .from("device_push_tokens")
+    .select("member_id")
+    .eq("token", token)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing && String(existing.member_id) !== auth.memberId) {
+    return jsonResponse(
+      { error: "Device token already registered to another account." },
+      409,
+    );
+  }
+
   const { error } = await supabase.from("device_push_tokens").upsert(
     {
       token,

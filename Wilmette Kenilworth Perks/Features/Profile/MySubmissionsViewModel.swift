@@ -22,9 +22,9 @@ final class MySubmissionsViewModel {
     func load(for submitterMemberId: String?) async {
         isLoading = true
         errorMessage = nil
+        records = []
 
         guard let submitterMemberId else {
-            records = []
             isLoading = false
             return
         }

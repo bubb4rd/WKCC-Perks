@@ -5,40 +5,6 @@ struct MySubmissionsListView: View {
     @State private var viewModel = MySubmissionsViewModel()
 
     var body: some View {
-        ZStack {
-            if viewModel.isLoading && viewModel.filteredRecords.isEmpty && !hasAttemptedLoad {
-                LoadingView(message: "Loading your perks...")
-            } else {
-                submissionsList
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .wkccPageBackground()
-        .navigationTitle("Manage Perks")
-        .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .refreshable {
-            await viewModel.load(for: authManager.member?.id)
-            hasAttemptedLoad = true
-        }
-        .task(id: "\(authManager.member?.id ?? "")-\(viewModel.selectedFilter.rawValue)") {
-            await viewModel.load(for: authManager.member?.id)
-            hasAttemptedLoad = true
-        }
-    }
-
-    @State private var hasAttemptedLoad = false
-
-    private var emptyMessage: String {
-        switch viewModel.selectedFilter {
-        case .all: "You haven't submitted any promotions yet."
-        case .pending: "No pending submissions."
-        case .approved: "No approved submissions yet."
-        case .rejected: "No rejected submissions."
-        }
-    }
-
-    private var submissionsList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: WKCCSpacing.md) {
                 if let error = viewModel.errorMessage {
@@ -49,7 +15,9 @@ struct MySubmissionsListView: View {
 
                 filterBar
 
-                if viewModel.filteredRecords.isEmpty {
+                if viewModel.isLoading {
+                    filterLoadingContent
+                } else if viewModel.filteredRecords.isEmpty {
                     EmptyStateView(
                         icon: "tray",
                         title: "No Submissions",
@@ -73,6 +41,38 @@ struct MySubmissionsListView: View {
             .padding(WKCCSpacing.md)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .wkccPageBackground()
+        .navigationTitle("Manage Perks")
+        .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .refreshable {
+            await viewModel.load(for: authManager.member?.id)
+        }
+        .task(id: "\(authManager.member?.id ?? "")-\(viewModel.selectedFilter.rawValue)") {
+            await viewModel.load(for: authManager.member?.id)
+        }
+    }
+
+    private var emptyMessage: String {
+        switch viewModel.selectedFilter {
+        case .all: "You haven't submitted any promotions yet."
+        case .pending: "No pending submissions."
+        case .approved: "No approved submissions yet."
+        case .rejected: "No rejected submissions."
+        }
+    }
+
+    private var filterLoadingContent: some View {
+        VStack(spacing: WKCCSpacing.md) {
+            ProgressView()
+                .tint(WKCCColors.primary)
+            Text("Loading...")
+                .font(WKCCTypography.callout)
+                .foregroundStyle(WKCCColors.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, WKCCSpacing.xl)
     }
 
     private var filterBar: some View {

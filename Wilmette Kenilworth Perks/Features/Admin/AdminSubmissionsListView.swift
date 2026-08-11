@@ -6,19 +6,42 @@ struct AdminSubmissionsListView: View {
     @State private var viewModel = AdminSubmissionsViewModel()
 
     var body: some View {
-        ZStack {
-            if viewModel.isLoading && viewModel.records.isEmpty {
-                LoadingView(message: "Loading submissions...")
-            } else if viewModel.filteredRecords.isEmpty {
-                EmptyStateView(
-                    icon: "tray",
-                    title: "No Submissions",
-                    message: emptyMessage
-                )
-            } else {
-                submissionsList
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
+                if let error = viewModel.errorMessage {
+                    ErrorBanner(message: error) {
+                        viewModel.dismissError()
+                    }
+                }
+
+                filterBar
+
+                if viewModel.isLoading {
+                    filterLoadingContent
+                } else if viewModel.filteredRecords.isEmpty {
+                    EmptyStateView(
+                        icon: "tray",
+                        title: "No Submissions",
+                        message: emptyMessage
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, WKCCSpacing.xl)
+                } else {
+                    ForEach(viewModel.filteredRecords) { record in
+                        NavigationLink {
+                            AdminSubmissionDetailView(record: record)
+                        } label: {
+                            AdminSubmissionRow(record: record)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(WKCCSpacing.md)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .wkccPageBackground()
         .modifier(AdminSubmissionsNavigationModifier(isEmbedded: isEmbedded))
@@ -27,9 +50,6 @@ struct AdminSubmissionsListView: View {
         }
         .task(id: viewModel.selectedFilter) {
             await viewModel.load()
-        }
-        .onAppear {
-            Task { await viewModel.load() }
         }
     }
 
@@ -42,31 +62,16 @@ struct AdminSubmissionsListView: View {
         }
     }
 
-    private var submissionsList: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
-                if let error = viewModel.errorMessage {
-                    ErrorBanner(message: error) {
-                        viewModel.dismissError()
-                    }
-                }
-
-                filterBar
-
-                ForEach(viewModel.filteredRecords) { record in
-                    NavigationLink {
-                        AdminSubmissionDetailView(record: record)
-                    } label: {
-                        AdminSubmissionRow(record: record)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(WKCCSpacing.md)
+    private var filterLoadingContent: some View {
+        VStack(spacing: WKCCSpacing.md) {
+            ProgressView()
+                .tint(WKCCColors.primary)
+            Text("Loading...")
+                .font(WKCCTypography.callout)
+                .foregroundStyle(WKCCColors.textSecondary)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .frame(maxWidth: .infinity)
+        .padding(.top, WKCCSpacing.xl)
     }
 
     private var filterBar: some View {

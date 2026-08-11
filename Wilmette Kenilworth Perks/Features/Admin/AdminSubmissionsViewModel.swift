@@ -22,6 +22,7 @@ final class AdminSubmissionsViewModel {
     func load() async {
         isLoading = true
         errorMessage = nil
+        records = []
 
         do {
             records = try await submissionService.fetchSubmissions(status: selectedFilter.status)

@@ -213,6 +213,7 @@ struct ProfileView: View {
                             icon: "building.2.fill",
                             title: businessValue(for: member),
                             subtitle: "Edit business details",
+                            subtitleColor: isIncomplete ? WKCCColors.warning : WKCCColors.textSecondary,
                             showsChevron: true,
                             showsIncompleteBadge: isIncomplete
                         )
@@ -320,7 +321,6 @@ struct ProfileView: View {
                         settingsListRow(
                             icon: "tag.fill",
                             title: "Manage Perks",
-                            subtitle: "Your submitted promotions",
                             showsChevron: true
                         )
                     }
@@ -388,6 +388,7 @@ struct ProfileView: View {
             : isFeatured
                 ? WKCCColors.accent
                 : Color.black
+    
 
         return HStack(alignment: .center, spacing: WKCCSpacing.sm) {
             ZStack {

@@ -137,7 +137,7 @@ struct DealDetailView: View {
             editorialSection(title: "About this perk") {
                 Text(deal.description)
                     .font(WKCCTypography.body)
-                    .foregroundStyle(WKCCColors.textSecondary)
+                    .foregroundStyle(Color.black.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -146,7 +146,7 @@ struct DealDetailView: View {
                 editorialSection(title: "Terms and exclusions") {
                     Text(terms)
                         .font(WKCCTypography.callout)
-                        .foregroundStyle(WKCCColors.textSecondary)
+                        .foregroundStyle(Color.black.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -163,11 +163,11 @@ struct DealDetailView: View {
             if let icon {
                 Label(title, systemImage: icon)
                     .font(WKCCTypography.headline)
-                    .foregroundStyle(WKCCColors.textPrimary)
+                    .foregroundStyle(Color.black)
             } else {
                 Text(title)
                     .font(WKCCTypography.headline)
-                    .foregroundStyle(WKCCColors.textPrimary)
+                    .foregroundStyle(Color.black)
             }
 
             content()
@@ -243,25 +243,18 @@ private struct DealDetailMetadataGrid: View {
     let deal: DealDetail
 
     var body: some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: WKCCSpacing.sm),
-                GridItem(.flexible(), spacing: WKCCSpacing.sm)
-            ],
-            spacing: WKCCSpacing.sm
-        ) {
-            metadataTile(
+        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+            metadataItem(
                 icon: "calendar",
-                title: "Available",
                 value: availabilityText
             )
 
-            metadataTile(
-                icon: deal.redemptionDisplayStyle.iconName,
-                title: "Redemption",
+            metadataItem(
+                icon: "qrcode",
                 value: deal.redemptionDisplayStyle.label
             )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var availabilityText: String {
@@ -280,35 +273,22 @@ private struct DealDetailMetadataGrid: View {
         }
     }
 
-    private var endDateText: String {
-        deal.expirationDate?.formatted(.dateTime.month(.abbreviated).day().year()) ?? "No end date"
-    }
-
-    private func metadataTile(
+    private func metadataItem(
         icon: String,
-        title: String,
         value: String,
-        valueColor: Color = WKCCColors.textPrimary
+        valueColor: Color = Color.black
     ) -> some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
-            Label(title, systemImage: icon)
-                .font(WKCCTypography.caption)
-                .foregroundStyle(WKCCColors.textSecondary)
-                .labelStyle(.titleAndIcon)
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            Image(systemName: icon)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(WKCCColors.primary)
+                .frame(width: 24, alignment: .center)
 
             Text(value)
                 .font(WKCCTypography.callout.weight(.semibold))
                 .foregroundStyle(valueColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(WKCCSpacing.md)
-        .background(WKCCColors.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: WKCCRadius.lg)
-                .stroke(WKCCColors.primary.opacity(0.08), lineWidth: 1)
-        )
     }
 }
 
@@ -326,11 +306,11 @@ struct DealRedemptionSheet: View {
                     VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
                         Text("Instructions")
                             .font(WKCCTypography.headline)
-                            .foregroundStyle(WKCCColors.textPrimary)
+                            .foregroundStyle(Color.black)
 
                         Text(deal.redemptionInstructions)
                             .font(WKCCTypography.body)
-                            .foregroundStyle(WKCCColors.textSecondary)
+                            .foregroundStyle(Color.black.opacity(0.85))
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -397,7 +377,7 @@ private struct DealReportProblemSheet: View {
         VStack(alignment: .leading, spacing: WKCCSpacing.md) {
             Text("Quick checks")
                 .font(WKCCTypography.headline)
-                .foregroundStyle(WKCCColors.textPrimary)
+                .foregroundStyle(Color.black)
 
             faqItem(
                 question: "Code won’t scan or isn’t accepted",

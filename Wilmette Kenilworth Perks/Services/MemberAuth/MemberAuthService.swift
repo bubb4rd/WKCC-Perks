@@ -100,6 +100,15 @@ final class MemberAuthService: AuthServicing {
     }
 
     func signOut() async {
+        let refreshToken = KeychainStore.loadSession()?.refreshToken
+        if let refreshToken, !refreshToken.isEmpty {
+            struct Body: Encodable { let refreshToken: String }
+            _ = try? await post(
+                path: "logout",
+                body: Body(refreshToken: refreshToken),
+                as: GenericOK.self
+            )
+        }
         KeychainStore.clear()
     }
 

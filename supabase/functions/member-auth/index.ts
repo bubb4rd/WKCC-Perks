@@ -64,6 +64,8 @@ const MAX_SHORT_DESCRIPTION = 280;
 const MAX_ADDRESS = 200;
 const MAX_PHONE = 40;
 const MAX_WEBSITE = 300;
+const RATE_LIMIT_LOGO_MAX = 10;
+const RATE_LIMIT_LOGO_WINDOW_MIN = 60;
 
 type AppProfileRow = {
   email: string;
@@ -107,8 +109,17 @@ async function sha256Hex(input: string): Promise<string> {
 }
 
 function randomDigits(length: number): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return [...bytes].map((b) => (b % 10).toString()).join("");
+  let out = "";
+  while (out.length < length) {
+    const bytes = crypto.getRandomValues(new Uint8Array(length * 2));
+    for (const b of bytes) {
+      // Reject values >= 250 to avoid modulo bias (250 = 25 * 10).
+      if (b >= 250) continue;
+      out += (b % 10).toString();
+      if (out.length >= length) break;
+    }
+  }
+  return out;
 }
 
 function randomToken(): string {
@@ -385,6 +396,72 @@ function logoExtension(contentType: string): string {
   }
 }
 
+function sniffImageContentType(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+async function assertRateLimit(
+  bucket: string,
+  subject: string,
+  max: number,
+  windowMinutes: number,
+): Promise<void> {
+  const supabase = supabaseAdmin();
+  const since = new Date(Date.now() - windowMinutes * 60_000).toISOString();
+  const { count, error } = await supabase
+    .from("edge_rate_limits")
+    .select("*", { count: "exact", head: true })
+    .eq("bucket", bucket)
+    .eq("subject", subject)
+    .gte("created_at", since);
+  if (error) throw error;
+  if ((count ?? 0) >= max) {
+    throw Object.assign(
+      new Error("Too many requests. Please try again later."),
+      { status: 429 },
+    );
+  }
+  const { error: insertError } = await supabase.from("edge_rate_limits").insert({
+    bucket,
+    subject,
+  });
+  if (insertError) throw insertError;
+}
+
 async function requireSessionMember(req: Request): Promise<{
   email: string;
   member: ChamberMemberRow;
@@ -397,7 +474,7 @@ async function requireSessionMember(req: Request): Promise<{
   }
 
   const payload = await verifyAccessToken(token);
-  if (!payload || typeof payload.email !== "string") {
+  if (!payload || payload.typ !== "access" || typeof payload.email !== "string") {
     throw Object.assign(new Error("Session expired."), { status: 401 });
   }
 
@@ -692,6 +769,38 @@ async function handleRefresh(req: Request): Promise<Response> {
   return jsonResponse(session);
 }
 
+async function handleLogout(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as { refreshToken?: string } | null;
+  const refreshToken = typeof body?.refreshToken === "string"
+    ? body.refreshToken.trim()
+    : "";
+
+  // Idempotent: missing/invalid token still clears the client session.
+  if (!refreshToken) {
+    return jsonResponse({ ok: true });
+  }
+
+  const refreshHash = await sha256Hex(refreshToken);
+  const supabase = supabaseAdmin();
+  const { data: sessionRow, error } = await supabase
+    .from("app_sessions")
+    .select("id, email")
+    .eq("refresh_token_hash", refreshHash)
+    .maybeSingle();
+  if (error) throw error;
+
+  if (sessionRow?.email) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("app_sessions")
+      .update({ revoked_at: now })
+      .eq("email", normalizeEmail(sessionRow.email))
+      .is("revoked_at", null);
+  }
+
+  return jsonResponse({ ok: true });
+}
+
 async function handleMe(req: Request): Promise<Response> {
   try {
     const { member, profile } = await requireSessionMember(req);
@@ -713,20 +822,33 @@ async function handleCompanyLogo(req: Request): Promise<Response> {
     return jsonResponse({ error: message }, status);
   }
 
+  try {
+    await assertRateLimit(
+      "company-logo",
+      String(session.member.cm_id),
+      RATE_LIMIT_LOGO_MAX,
+      RATE_LIMIT_LOGO_WINDOW_MIN,
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status ?? 500;
+    const message = error instanceof Error ? error.message : "Unexpected error.";
+    return jsonResponse({ error: message }, status);
+  }
+
   const body = await req.json().catch(() => null) as {
     imageBase64?: string;
     contentType?: string;
   } | null;
 
   const imageBase64 = typeof body?.imageBase64 === "string" ? body.imageBase64 : "";
-  const contentType = typeof body?.contentType === "string"
+  const declaredType = typeof body?.contentType === "string"
     ? body.contentType.toLowerCase().trim()
     : "image/jpeg";
 
   if (!imageBase64) {
     return jsonResponse({ error: "imageBase64 is required." }, 400);
   }
-  if (!ALLOWED_LOGO_TYPES.has(contentType)) {
+  if (!ALLOWED_LOGO_TYPES.has(declaredType)) {
     return jsonResponse(
       { error: "contentType must be image/jpeg, image/png, or image/webp." },
       400,
@@ -747,15 +869,23 @@ async function handleCompanyLogo(req: Request): Promise<Response> {
     );
   }
 
+  const sniffedType = sniffImageContentType(bytes);
+  if (!sniffedType || sniffedType !== declaredType) {
+    return jsonResponse(
+      { error: "Image bytes do not match the declared contentType." },
+      400,
+    );
+  }
+
   const supabase = supabaseAdmin();
-  const ext = logoExtension(contentType);
+  const ext = logoExtension(sniffedType);
   const path = `${session.member.cm_id}/logo.${ext}`;
 
-  const blob = new Blob([bytes], { type: contentType });
+  const blob = new Blob([bytes], { type: sniffedType });
   const { error: uploadError } = await supabase.storage
     .from("business-logos")
     .upload(path, blob, {
-      contentType,
+      contentType: sniffedType,
       upsert: true,
       cacheControl: "3600",
     });
@@ -1033,6 +1163,9 @@ Deno.serve(async (req) => {
     }
     if (route === "refresh" && req.method === "POST") {
       return await handleRefresh(req);
+    }
+    if (route === "logout" && req.method === "POST") {
+      return await handleLogout(req);
     }
     if (route === "me" && req.method === "GET") {
       return await handleMe(req);
