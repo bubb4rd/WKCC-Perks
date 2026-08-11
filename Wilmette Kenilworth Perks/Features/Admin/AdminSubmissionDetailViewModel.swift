@@ -88,12 +88,15 @@ final class AdminSubmissionDetailViewModel {
         isReviewing = true
         errorMessage = nil
 
+        let trimmedNotes = adminNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+
         do {
             record = try await submissionService.reject(
                 id: record.id,
                 reviewedBy: adminId,
-                notes: adminNotes
+                notes: trimmedNotes.isEmpty ? nil : trimmedNotes
             )
+            adminNotes = record.adminNotes ?? ""
             isReviewing = false
             return true
         } catch {

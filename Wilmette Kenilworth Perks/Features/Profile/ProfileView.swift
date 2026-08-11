@@ -313,6 +313,20 @@ struct ProfileView: View {
                     .buttonStyle(.plain)
 
                     settingsDivider
+                } else {
+                    NavigationLink {
+                        MySubmissionsListView()
+                    } label: {
+                        settingsListRow(
+                            icon: "tag.fill",
+                            title: "Manage Perks",
+                            subtitle: "Your submitted promotions",
+                            showsChevron: true
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    settingsDivider
                 }
 
                 NavigationLink {

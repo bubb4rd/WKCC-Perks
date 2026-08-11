@@ -75,8 +75,8 @@ struct AdminSubmissionReviewConceptA: View {
         } message: {
             Text("Approved perks will appear in the Deals tab.")
         }
-        .confirmationDialog("Reject this promotion?", isPresented: $showRejectConfirm, titleVisibility: .visible) {
-            Button("Reject", role: .destructive) {}
+        .confirmationDialog("Decline this promotion?", isPresented: $showRejectConfirm, titleVisibility: .visible) {
+            Button("Decline", role: .destructive) {}
             Button("Cancel", role: .cancel) {}
         }
         .onAppear {
@@ -230,7 +230,7 @@ struct AdminSubmissionReviewConceptA: View {
             Button {
                 showRejectConfirm = true
             } label: {
-                Text("Deny")
+                Text("Decline")
                     .font(WKCCTypography.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, WKCCSpacing.md)

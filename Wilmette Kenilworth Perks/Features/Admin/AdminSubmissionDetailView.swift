@@ -16,7 +16,8 @@ private struct AdminSubmissionDetailContent: View {
     @State private var isEditing = false
     @State private var showSaveSuccess = false
     @State private var showApproveConfirm = false
-    @State private var showRejectConfirm = false
+    @State private var showRejectSheet = false
+    @State private var rejectNoteDraft = ""
     @State private var showReviewedAlert = false
     @State private var reviewedMessage = ""
 
@@ -69,11 +70,19 @@ private struct AdminSubmissionDetailContent: View {
         } message: {
             Text("Approved perks will appear in the Deals tab.")
         }
-        .confirmationDialog("Reject this promotion?", isPresented: $showRejectConfirm, titleVisibility: .visible) {
-            Button("Reject", role: .destructive) {
-                Task { await rejectSubmission() }
-            }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $showRejectSheet) {
+            RejectSubmissionNoteSheet(
+                note: $rejectNoteDraft,
+                isRejecting: viewModel.isReviewing,
+                errorMessage: viewModel.errorMessage,
+                onDismissError: { viewModel.dismissError() },
+                onCancel: { showRejectSheet = false },
+                onReject: {
+                    Task { await rejectSubmission() }
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -163,7 +172,8 @@ private struct AdminSubmissionDetailContent: View {
     private var actionButtons: some View {
         HStack(spacing: WKCCSpacing.sm) {
             Button {
-                showRejectConfirm = true
+                rejectNoteDraft = viewModel.adminNotes
+                showRejectSheet = true
             } label: {
                 Text("Reject")
                     .font(WKCCTypography.headline)
@@ -298,9 +308,100 @@ private struct AdminSubmissionDetailContent: View {
 
     private func rejectSubmission() async {
         guard let adminId = authManager.member?.id else { return }
+        viewModel.adminNotes = rejectNoteDraft
         if await viewModel.reject(reviewedBy: adminId) {
+            showRejectSheet = false
             reviewedMessage = "Promotion rejected."
             showReviewedAlert = true
+        }
+    }
+}
+
+private struct RejectSubmissionNoteSheet: View {
+    @Binding var note: String
+    let isRejecting: Bool
+    let errorMessage: String?
+    let onDismissError: () -> Void
+    let onCancel: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
+                Text("Optionally tell the submitter why this promotion is being rejected. They'll see this note in Manage Perks.")
+                    .font(WKCCTypography.callout)
+                    .foregroundStyle(WKCCColors.textSecondary)
+
+                VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+                    Text("Note to submitter")
+                        .font(WKCCTypography.headline)
+                        .foregroundStyle(WKCCColors.textPrimary)
+
+                    TextEditor(text: $note)
+                        .font(WKCCTypography.body)
+                        .frame(minHeight: 120)
+                        .padding(WKCCSpacing.xs)
+                        .scrollContentBackground(.hidden)
+                        .background(WKCCColors.pageBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: WKCCRadius.sm)
+                                .stroke(WKCCColors.primary.opacity(0.1), lineWidth: 1)
+                        )
+                        .disabled(isRejecting)
+                }
+
+                if let errorMessage {
+                    ErrorBanner(message: errorMessage, onDismiss: onDismissError)
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(spacing: WKCCSpacing.sm) {
+                    Button {
+                        onReject()
+                    } label: {
+                        Group {
+                            if isRejecting {
+                                ProgressView()
+                                    .tint(WKCCColors.textOnPrimary)
+                            } else {
+                                Text("Reject")
+                                    .font(WKCCTypography.headline)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, WKCCSpacing.md)
+                        .background(WKCCColors.error)
+                        .foregroundStyle(WKCCColors.textOnPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md))
+                    }
+                    .disabled(isRejecting)
+
+                    Button {
+                        onCancel()
+                    } label: {
+                        Text("Cancel")
+                            .font(WKCCTypography.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, WKCCSpacing.md)
+                            .background(WKCCColors.cardBackground)
+                            .foregroundStyle(WKCCColors.textPrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: WKCCRadius.md)
+                                    .stroke(WKCCColors.primary.opacity(0.15), lineWidth: 1)
+                            )
+                    }
+                    .disabled(isRejecting)
+                }
+            }
+            .padding(WKCCSpacing.md)
+            .wkccPageBackground()
+            .navigationTitle("Reject Promotion")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
 }
