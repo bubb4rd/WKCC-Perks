@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-FROM_DEFAULT='WKCC Perks <onboarding@resend.dev>'
+FROM_DEFAULT='WKCC Perks <noreply@wilmettekenilworth.com>'
 AUTH_EMAIL_FROM="${AUTH_EMAIL_FROM:-$FROM_DEFAULT}"
 
 if [[ -z "${RESEND_API_KEY:-}" ]]; then

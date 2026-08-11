@@ -7,10 +7,15 @@ enum PerksAPIClient {
         case get = "GET"
         case post = "POST"
         case patch = "PATCH"
+        case delete = "DELETE"
     }
 
     struct APIErrorBody: Decodable {
         let error: String?
+    }
+
+    struct OkResponse: Decodable {
+        let ok: Bool?
     }
 
     enum RequestError: LocalizedError {

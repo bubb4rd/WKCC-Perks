@@ -6,6 +6,7 @@ Related setup docs:
 
 - [MEMBER_AUTH_SETUP.md](MEMBER_AUTH_SETUP.md)
 - [LIVE_PROMOTIONS_SETUP.md](LIVE_PROMOTIONS_SETUP.md)
+- [PUSH_NOTIFICATIONS_SETUP.md](PUSH_NOTIFICATIONS_SETUP.md)
 - [GROWTHZONE_SETUP.md](GROWTHZONE_SETUP.md) (legacy; unused in current auth path)
 
 ---
@@ -19,7 +20,7 @@ Related setup docs:
 | Business catalog + logos (`GET businesses`, `POST company-logo`) | Live |
 | Profile avatar upload → Storage + `chamber_members.logo_url` | Live |
 | Business list / detail / Home partner chips use `BusinessLogoView` | Live |
-| Notifications | **Still mock** (see below) |
+| Notifications | **Push live** (APNs); in-app bell still mock-only |
 
 ---
 
@@ -53,7 +54,9 @@ Related setup docs:
 
 ### 5. Notifications always mock
 
-**Mitigated:** Notification bell is hidden when `useMockAuth = false` (live). Mock mode still shows the bell + `MockNotificationService`. A real notifications backend remains future work.
+**Done (push):** Live mode registers APNs device tokens and the `perks` edge function sends pushes on submit / approve / reject / admin create. Setup: [`PUSH_NOTIFICATIONS_SETUP.md`](PUSH_NOTIFICATIONS_SETUP.md). Migration: `device_push_tokens`.
+
+**Still mock:** In-app notification bell + inbox remain behind `useMockAuth` only (no live inbox).
 
 ### 6. Membership tier always “Basic” in live auth
 
@@ -128,7 +131,7 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 3. ~~Session refresh (or 401 retry)~~  
 4. ~~Nail deal detail editorial presentation~~  
 5. ~~Admin archive / remove promotions~~  
-6. ~~Notifications: hide UI **or** build backend~~ (hidden in live; backend later)  
+6. ~~Notifications: hide UI **or** build backend~~ (push live; in-app inbox still mock/hidden)  
 7. ~~Enrich business metadata **or** simplify empty UI~~ (member-owned profile edit)  
 8. ~~Map membership tiers; rate-limit OTP request~~ (CSV-backed tiers + request-code throttle)  
 9. ~~Confirm prod secrets and ops (below)~~ (verified 2026-07-29)  
@@ -142,6 +145,7 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - [x] `useMockAuth = false` in the release build  
 - [x] Supabase secrets set: `AUTH_JWT_SECRET`, `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `MEMBER_SYNC_SECRET` (if syncing), ChamberMaster keys if used  
   - Verified 2026-07-29 on project `wbzmpylhlsikgzpmfksl`. Removed prod `AUTH_DEBUG_RETURN_CODE` (must stay unset). ChamberMaster API keys not set — OK if member sync is not run from prod.  
+  - **2026-08-11:** Resend domain verified; `AUTH_EMAIL_FROM` set to `WKCC Perks <noreply@wilmettekenilworth.com>`.  
 - [x] `member-auth` and `perks` edge functions deployed (ACTIVE; `verify_jwt=false` as designed)  
 - [x] Migrations applied (auth + live promotions + business logos / storage bucket + soft-archive + membership_type)  
 - [x] At least one `app_profiles.is_chamber_admin = true` for chamber staff  
@@ -152,8 +156,12 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - [x] Deal detail visual/editorial review on device  
 - [x] Confirm seed deals remapped or deleted — **done (mock seeds removed)**  
 - [x] App Review demo account ready (OTP notes drafted for App Store Connect)  
-- [ ] App Store assets, privacy policy / support URL as required — pack ready in [`APP_STORE_SUBMIT.md`](APP_STORE_SUBMIT.md); host privacy HTML then paste URLs in ASC  
-- [ ] **Upload / submit blocked until Xcode 26+** (ASC requires iOS 26 SDK; local Xcode 16.4 archive succeeded but upload was rejected)  
+- [x] APNs secrets set; push device test passed (submit / approve / reject / admin-create)  
+- [x] App Store privacy policy URL + App Privacy questionnaire completed — see [`APP_STORE_SUBMIT.md`](APP_STORE_SUBMIT.md)  
+- [x] Screenshots + review sign-in notes in ASC (confirm if already done)  
+- [x] **Xcode 26+** available for ASC upload  
+- [x] `APNS_PRODUCTION=true` (set 2026-08-11 for TestFlight / App Store)  
+- [ ] Re-archive with Xcode 26, upload to ASC, then **Submit to App Review**  
 
 ---
 
@@ -177,5 +185,6 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - Closed §10 admin soft-archive for live promotions (DB + edge + Manage Perks UI).
 - Closed §4 sparse catalog via member-owned business profile edit (not CM enrichment); ChamberMaster list payload has no street address.
 - Closed §6/§7 (launch #8): CSV import of `membership_type` + websites; OTP `request-code` rate-limited (5 / 15m per email).
+- Closed §5 notifications for launch: APNs push-only (device tokens + perks emits); in-app inbox remains mock-gated.
 - Launch ops verified 2026-07-29: secrets (unset `AUTH_DEBUG_RETURN_CODE`), `member-auth`/`perks` ACTIVE, migrations applied, chamber admin present; dry runs + review account marked done. Remaining: App Store listing/submit ([`APP_STORE_SUBMIT.md`](APP_STORE_SUBMIT.md)).
-- 2026-07-29: Created ASC submit pack + privacy HTML; Release archive OK; ASC upload rejected — need Xcode 26 / iOS 26 SDK.
+- 2026-08-11: Resend domain live (`noreply@wilmettekenilworth.com`); APNs secrets + device push verified; privacy policy hosted + ASC App Privacy done. Remaining: Xcode 26 archive/upload, screenshots/review notes if missing, `APNS_PRODUCTION=true` for release.

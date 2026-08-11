@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct Wilmette_Kenilworth_PerksApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var authManager = AuthManager()
 
     init() {

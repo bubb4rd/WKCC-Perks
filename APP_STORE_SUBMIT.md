@@ -8,28 +8,19 @@ Use this checklist to finish App Store listing and submission. Backend ops were 
 |---|---|
 | **Support URL** | `https://chambermaster.wilmettekenilworth.com/contact/` |
 | **Marketing URL** (optional) | `https://www.wilmettekenilworth.com` |
-| **Privacy Policy URL** | Host [`docs/app-store/privacy-policy.html`](docs/app-store/privacy-policy.html) on a public HTTPS URL, then paste that URL here |
+| **Privacy Policy URL** | `https://www.wilmettekenilworth.com/wkcc-perks-privacy/` (hosted; entered in ASC) |
 
 ### Host the privacy policy (required before submit)
 
-Apple requires a **public HTTPS** privacy policy URL. Publish the HTML file, for example:
+**Done (2026-08-11):** Public HTTPS privacy policy is live and set in App Store Connect.
 
-1. Upload `docs/app-store/privacy-policy.html` to the chamber site as `/wkcc-perks-privacy/` (or similar), **or**
-2. GitHub Pages / any static host from this repo.
-
-Then set **Privacy Policy URL** in App Store Connect → App Privacy / App Information to that live link.
-
-Suggested live path once hosted:
-
-`https://www.wilmettekenilworth.com/wkcc-perks-privacy/`
-
-Until that page is live, do **not** submit for review.
+Source HTML remains at [`docs/app-store/privacy-policy.html`](docs/app-store/privacy-policy.html).
 
 ---
 
 ## App Privacy questionnaire (suggested answers)
 
-Complete **App Privacy** in App Store Connect to match the app:
+**Done:** App Privacy answers saved in App Store Connect (2026-08-11). Reference answers used:
 
 | Data type | Collected? | Linked to user? | Used for tracking? | Purpose |
 |---|---|---|---|---|
@@ -118,12 +109,13 @@ Before uploading:
 - [x] `AppConfig.useMockAuth = false`
 - [x] Prod secrets / edge functions / migrations verified
 - [x] Release archive built locally (`build/WKCCPerks.xcarchive`, 2026-07-29)
-- [ ] **Install Xcode 26+** (required for ASC upload — iOS 26 SDK)
-- [ ] Privacy policy HTML hosted at a public HTTPS URL and entered in ASC
-- [ ] Support URL set to chamber contact page
-- [ ] Screenshots uploaded
-- [ ] App Privacy answers saved
-- [ ] Review username / password / notes filled
+- [x] Privacy policy HTML hosted at a public HTTPS URL and entered in ASC
+- [x] Support URL set to chamber contact page
+- [x] App Privacy answers saved
+- [x] Screenshots uploaded (if not already)
+- [x] Review username / password / notes filled (if not already)
+- [x] **Install Xcode 26+** (required for ASC upload — iOS 26 SDK)
+- [x] Set `APNS_PRODUCTION=true` before TestFlight / App Store builds
 - [ ] Re-archive with Xcode 26, upload, then **Submit to App Review**
 
 ---

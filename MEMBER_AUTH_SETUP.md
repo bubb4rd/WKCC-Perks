@@ -81,15 +81,13 @@ Live OTP emails are sent by Resend from `member-auth`. If the key is missing, `r
    - Copy the `re_...` value (shown once)
 3. Choose a from-address:
    - **Testing:** `WKCC Perks <onboarding@resend.dev>` (works immediately; Resend may only deliver to your Resend account email)
-   - **Production:** verify your domain under **Domains**, then use e.g. `WKCC Perks <noreply@wilmettekenilworth.com>`
+   - **Production:** `WKCC Perks <noreply@wilmettekenilworth.com>` (domain verified; set as live secret 2026-08-11)
 
 ### Wire secrets to Supabase
 
 ```bash
 supabase secrets set RESEND_API_KEY="re_YOUR_KEY_HERE"
-supabase secrets set AUTH_EMAIL_FROM="WKCC Perks <onboarding@resend.dev>"
-# after domain verify:
-# supabase secrets set AUTH_EMAIL_FROM="WKCC Perks <noreply@yourdomain.com>"
+supabase secrets set AUTH_EMAIL_FROM="WKCC Perks <noreply@wilmettekenilworth.com>"
 ```
 
 Or run [`supabase/scripts/setup-resend.sh`](supabase/scripts/setup-resend.sh) and paste the key when prompted.

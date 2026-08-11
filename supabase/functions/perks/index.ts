@@ -1,4 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import {
+  emitPush,
+  notifyAdminsOfSubmission,
+  notifyMembersNewPromotion,
+  notifySubmitterApproved,
+  notifySubmitterRejected,
+} from "./apns.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -349,6 +356,15 @@ async function handleCreateSubmission(
     .select("*")
     .single();
   if (error) throw error;
+
+  emitPush(() =>
+    notifyAdminsOfSubmission({
+      submissionId: String(data.id),
+      submitterName: String(data.submitter_name),
+      title: String(data.title),
+    })
+  );
+
   return jsonResponse(mapSubmission(data), 201);
 }
 
@@ -469,8 +485,32 @@ async function handleApproveSubmission(
     createdBy: auth.memberId,
   });
 
-  const { error: dealError } = await supabase.from("deals").insert(dealRow);
+  const { data: deal, error: dealError } = await supabase
+    .from("deals")
+    .insert(dealRow)
+    .select("id")
+    .single();
   if (dealError) throw dealError;
+
+  const submitterMemberId = String(updated.submitter_member_id);
+  const perkTitle = String(updated.title);
+  const businessName = String(updated.company_name);
+  const submissionId = String(updated.id);
+  const dealId = String(deal.id);
+
+  emitPush(async () => {
+    await notifySubmitterApproved({
+      submitterMemberId,
+      title: perkTitle,
+      submissionId,
+    });
+    await notifyMembersNewPromotion({
+      title: perkTitle,
+      businessName,
+      dealId,
+      excludeMemberId: submitterMemberId,
+    });
+  });
 
   return jsonResponse(mapSubmission(updated));
 }
@@ -509,6 +549,16 @@ async function handleRejectSubmission(
     .select("*")
     .single();
   if (error) throw error;
+
+  emitPush(() =>
+    notifySubmitterRejected({
+      submitterMemberId: String(data.submitter_member_id),
+      title: String(data.title),
+      submissionId: String(data.id),
+      notes: typeof data.admin_notes === "string" ? data.admin_notes : null,
+    })
+  );
+
   return jsonResponse(mapSubmission(data));
 }
 
@@ -562,7 +612,66 @@ async function handleAdminCreateDeal(
     .select("*")
     .single();
   if (error) throw error;
+
+  emitPush(() =>
+    notifyMembersNewPromotion({
+      title: String(data.title),
+      businessName: String(data.business_name),
+      dealId: String(data.id),
+    })
+  );
+
   return jsonResponse(mapDealDetail(data), 201);
+}
+
+async function handleRegisterDeviceToken(
+  auth: AuthContext,
+  req: Request,
+): Promise<Response> {
+  const body = await req.json().catch(() => null) as { token?: string } | null;
+  const token = body?.token?.trim() ?? "";
+  if (!token || token.length < 32) {
+    return jsonResponse({ error: "Invalid device token." }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase.from("device_push_tokens").upsert(
+    {
+      token,
+      member_id: auth.memberId,
+      platform: "ios",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "token" },
+  );
+  if (error) throw error;
+  return jsonResponse({ ok: true });
+}
+
+async function handleUnregisterDeviceToken(
+  auth: AuthContext,
+  req: Request,
+): Promise<Response> {
+  const body = await req.json().catch(() => null) as { token?: string } | null;
+  const token = body?.token?.trim();
+  const supabase = supabaseAdmin();
+
+  if (token) {
+    const { error } = await supabase
+      .from("device_push_tokens")
+      .delete()
+      .eq("token", token)
+      .eq("member_id", auth.memberId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("device_push_tokens")
+      .delete()
+      .eq("member_id", auth.memberId);
+    if (error) throw error;
+  }
+
+  return jsonResponse({ ok: true });
 }
 
 async function handleAdminUpdateDeal(
@@ -681,6 +790,24 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const parts = pathParts(url.pathname);
     const auth = await requireAuth(req);
+
+    // POST /device-tokens
+    if (
+      req.method === "POST" &&
+      parts.length === 1 &&
+      parts[0] === "device-tokens"
+    ) {
+      return await handleRegisterDeviceToken(auth, req);
+    }
+
+    // DELETE /device-tokens
+    if (
+      req.method === "DELETE" &&
+      parts.length === 1 &&
+      parts[0] === "device-tokens"
+    ) {
+      return await handleUnregisterDeviceToken(auth, req);
+    }
 
     // GET /deals
     if (req.method === "GET" && parts.length === 1 && parts[0] === "deals") {

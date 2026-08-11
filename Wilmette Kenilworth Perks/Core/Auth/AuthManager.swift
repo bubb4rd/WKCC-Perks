@@ -114,6 +114,7 @@ final class AuthManager {
     }
 
     func signOut() async {
+        await PushNotificationManager.shared.stopAndUnregister()
         await authService.signOut()
         KeychainStore.clear()
         session = nil
@@ -183,6 +184,7 @@ final class AuthManager {
 
         if session.member.membershipStatus.isEntitled && session.member.entitlements.canViewDeals {
             flowState = .authenticated
+            PushNotificationManager.shared.startIfNeeded()
         } else {
             flowState = .restrictedMembership
         }
