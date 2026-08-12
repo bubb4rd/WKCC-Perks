@@ -68,7 +68,8 @@ struct DealDetailView: View {
                 .font(.system(.title, design: .default).weight(.bold))
                 .foregroundStyle(Color.black)
                 .fixedSize(horizontal: false, vertical: true)
-
+            DealDetailMetadataGrid(deal: deal)
+            
             NavigationLink {
                 BusinessDetailView(businessId: deal.businessId)
             } label: {
@@ -76,7 +77,7 @@ struct DealDetailView: View {
                     
                     VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
                         Text(deal.businessName)
-                            .font(WKCCTypography.headline)
+                            .font(WKCCTypography.title)
                             .foregroundStyle(WKCCColors.textPrimary)
                     }
 
@@ -89,7 +90,7 @@ struct DealDetailView: View {
             }
             .buttonStyle(.plain)
 
-            DealDetailMetadataGrid(deal: deal)
+            
         }
     }
 
@@ -280,12 +281,12 @@ private struct DealDetailMetadataGrid: View {
     ) -> some View {
         HStack(alignment: .center, spacing: WKCCSpacing.sm) {
             Image(systemName: icon)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(WKCCColors.primary)
-                .frame(width: 24, alignment: .center)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.black)
+                .frame(width: 26, alignment: .center)
 
             Text(value)
-                .font(WKCCTypography.callout.weight(.semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(valueColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
