@@ -32,10 +32,15 @@ final class DealDetailViewModel {
 
         do {
             let fetched = try await dealsService.fetchDeal(id: dealId)
-            deal = fetched
+            let logoURL: URL?
             if fetched.imageURL == nil {
-                businessLogoURL = try? await businessService.fetchBusiness(id: fetched.businessId).logoURL
+                logoURL = try? await businessService.fetchBusiness(id: fetched.businessId).logoURL
+            } else {
+                logoURL = nil
             }
+            // Assign logo before deal so the first paint already has the fallback URL.
+            businessLogoURL = logoURL
+            deal = fetched
         } catch {
             errorMessage = error.localizedDescription
         }

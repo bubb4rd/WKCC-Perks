@@ -20,7 +20,9 @@ struct BusinessLogoView: View {
                         image
                             .resizable()
                             .scaledToFill()
-                    case .failure, .empty:
+                    case .empty:
+                        Color(white: 0.9)
+                    case .failure:
                         placeholder
                     @unknown default:
                         placeholder

@@ -218,7 +218,9 @@ private struct DealDetailHeroImage: View {
                         .scaledToFill()
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                         .clipped()
-                case .failure, .empty:
+                case .empty:
+                    Color(white: 0.9)
+                case .failure:
                     placeholderImage
                 @unknown default:
                     placeholderImage

@@ -2,6 +2,13 @@ import SwiftUI
 
 struct AppRouter: View {
     @Environment(AuthManager.self) private var authManager
+    @State private var hasCompletedOnboarding = OnboardingStore.hasCompleted
+
+    private var showsOnboarding: Bool {
+        !hasCompletedOnboarding
+            && authManager.flowState == .unauthenticated
+            && !authManager.isCodeSent
+    }
 
     var body: some View {
         Group {
@@ -9,7 +16,13 @@ struct AppRouter: View {
             case .launching:
                 SplashView()
             case .unauthenticated, .authenticating, .confirmingLink:
-                LoginView()
+                if showsOnboarding {
+                    OnboardingView {
+                        hasCompletedOnboarding = true
+                    }
+                } else {
+                    LoginView()
+                }
             case .authenticated:
                 MainTabView()
             case .restrictedMembership:
@@ -21,6 +34,7 @@ struct AppRouter: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authManager.flowState)
+        .animation(.easeInOut(duration: 0.3), value: hasCompletedOnboarding)
         .task {
             await authManager.bootstrap()
         }

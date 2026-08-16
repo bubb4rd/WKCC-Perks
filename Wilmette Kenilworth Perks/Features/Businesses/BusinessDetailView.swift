@@ -73,7 +73,7 @@ struct BusinessDetailView: View {
                     aboutSection(about)
                 }
 
-                dealsSection(activeDeals)
+                dealsSection(activeDeals, logoURL: business.logoURL)
             }
             .padding(.horizontal, WKCCSpacing.md)
             .padding(.top, WKCCSpacing.lg)
@@ -180,8 +180,8 @@ struct BusinessDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func dealsSection(_ deals: [DealSummary]) -> some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+    private func dealsSection(_ deals: [DealSummary], logoURL: URL?) -> some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
             Text("Current Perks")
                 .font(WKCCTypography.headline)
                 .foregroundStyle(WKCCColors.textPrimary)
@@ -193,7 +193,10 @@ struct BusinessDetailView: View {
             } else {
                 ForEach(deals) { deal in
                     NavigationLink(value: deal) {
-                        DealCard(deal: deal)
+                        DealCard(
+                            deal: deal,
+                            businessLogoURL: logoURL
+                        )
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
@@ -301,7 +304,9 @@ private struct BusinessDetailHeroImage: View {
                         .scaledToFill()
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                         .clipped()
-                case .failure, .empty:
+                case .empty:
+                    Color(white: 0.9)
+                case .failure:
                     placeholderImage
                 @unknown default:
                     placeholderImage

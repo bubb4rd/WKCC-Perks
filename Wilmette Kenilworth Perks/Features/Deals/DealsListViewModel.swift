@@ -13,6 +13,7 @@ enum DealFilter: String, CaseIterable, Identifiable {
 @MainActor
 final class DealsListViewModel {
     private(set) var deals: [DealSummary] = []
+    private(set) var businessLogoURLs: [String: URL] = [:]
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -20,9 +21,14 @@ final class DealsListViewModel {
     var selectedFilter: DealFilter = .all
 
     private let dealsService: any DealsServicing
+    private let businessService: any BusinessServicing
 
-    init(dealsService: any DealsServicing = AppDependencies.shared.dealsService) {
+    init(
+        dealsService: any DealsServicing = AppDependencies.shared.dealsService,
+        businessService: any BusinessServicing = AppDependencies.shared.businessService
+    ) {
         self.dealsService = dealsService
+        self.businessService = businessService
     }
 
     var filteredDeals: [DealSummary] {
@@ -39,13 +45,26 @@ final class DealsListViewModel {
         }
     }
 
+    func logoURL(for businessId: String) -> URL? {
+        businessLogoURLs[businessId]
+    }
+
     func load() async {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
 
         do {
-            deals = try await dealsService.fetchDeals()
+            async let dealsTask = dealsService.fetchDeals()
+            async let businessesTask = businessService.fetchBusinesses()
+            deals = try await dealsTask
+            let businesses = (try? await businessesTask) ?? []
+            businessLogoURLs = Dictionary(
+                uniqueKeysWithValues: businesses.compactMap { business in
+                    guard let logoURL = business.logoURL else { return nil }
+                    return (business.id, logoURL)
+                }
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

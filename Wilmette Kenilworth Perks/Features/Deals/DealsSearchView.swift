@@ -216,7 +216,7 @@ struct DealsSearchView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: WKCCSpacing.md) {
+                    LazyVStack(alignment: .leading, spacing: WKCCSpacing.lg) {
                         if let error = viewModel.errorMessage {
                             ErrorBanner(message: error) {
                                 viewModel.dismissError()
@@ -224,7 +224,10 @@ struct DealsSearchView: View {
                         }
 
                         ForEach(viewModel.filteredDeals) { deal in
-                            DealCard(deal: deal)
+                            DealCard(
+                                deal: deal,
+                                businessLogoURL: viewModel.logoURL(for: deal.businessId)
+                            )
                         }
                     }
                     .padding(.horizontal, WKCCSpacing.md)

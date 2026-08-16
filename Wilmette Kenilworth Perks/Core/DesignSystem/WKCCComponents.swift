@@ -79,7 +79,9 @@ struct PerkCardBackground: View {
                         .scaledToFill()
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                         .clipped()
-                case .failure, .empty:
+                case .empty:
+                    Color(white: 0.9)
+                case .failure:
                     placeholderImage
                 @unknown default:
                     placeholderImage
@@ -101,48 +103,52 @@ struct PerkCardBackground: View {
 
 struct DealCard: View {
     let deal: DealSummary
+    var businessLogoURL: URL? = nil
 
-    private let logoSize: CGFloat = 48
+    private let logoSize: CGFloat = 92
+    /// How far the logo hangs past the white card on the top and leading edges.
+    private let logoOutset: CGFloat = 14
 
     @State private var redemptionDeal: DealDetail?
     @State private var didCopyCode = false
     @State private var isLoadingRedeem = false
 
+    /// Logo footprint that sits inside the padded card content.
+    private var logoContentSpan: CGFloat {
+        max(0, logoSize - logoOutset - WKCCSpacing.md)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+        VStack(alignment: .leading, spacing: WKCCSpacing.md) {
             HStack(alignment: .center, spacing: WKCCSpacing.sm) {
-                companyLogo
+                Color.clear
+                    .frame(width: logoContentSpan, height: logoContentSpan)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(deal.businessName)
-                        .font(WKCCTypography.title)
-                        .foregroundStyle(WKCCColors.textPrimary)
-
-                    
-                }
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                Text(deal.businessName)
+                    .font(WKCCTypography.title)
+                    .foregroundStyle(WKCCColors.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            
-            Text(deal.title)
-                .font(.system(.title3, design: .default).weight(.bold))
+
+            Text(deal.shortDescription.isEmpty ? deal.title : deal.shortDescription)
+                .font(.system(.title3, design: .default))
                 .foregroundStyle(Color.black)
-                .lineLimit(2)
+                .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: WKCCSpacing.md) {
-                Label(deal.category.rawValue, systemImage: deal.category.iconName)
-                    .font(WKCCTypography.body.weight(.medium))
-                    .foregroundStyle(Color.black.opacity(0.65))
-                    .labelStyle(.titleAndIcon)
-                metaRow
-                    .frame(alignment: .leading)
-                ctaRow
-            }
+            footerRow
         }
         .padding(WKCCSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .wkccCardStyle()
+        .padding(.top, logoOutset)
+        .padding(.leading, logoOutset)
+        .overlay(alignment: .topLeading) {
+            companyLogo
+        }
         .sheet(item: $redemptionDeal) { detail in
             DealRedemptionSheet(deal: detail, didCopyCode: $didCopyCode)
                 .presentationDetents([.medium, .large])
@@ -150,36 +156,41 @@ struct DealCard: View {
         }
     }
 
-    private var ctaRow: some View {
-        DealCTARatioSplit(spacing: WKCCSpacing.xs, leadingRatio: 0.4) {
-            NavigationLink(value: deal) {
-                dealCTALabel(
-                    title: "View",
-                    systemImage: "eye",
-                    style: .secondary
-                )
-            }
-            .buttonStyle(.plain)
+    private var footerRow: some View {
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            expirationLabel
 
-            Button {
-                Task { await openRedemption() }
-            } label: {
-                dealCTALabel(
-                    title: "Redeem",
-                    systemImage: "qrcode",
-                    style: .accent
-                )
+            Spacer(minLength: WKCCSpacing.xs)
+
+            HStack(spacing: WKCCSpacing.xs) {
+                NavigationLink(value: deal) {
+                    dealCTALabel(
+                        title: "View",
+                        systemImage: "eye",
+                        style: .secondary
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    Task { await openRedemption() }
+                } label: {
+                    dealCTALabel(
+                        title: "Redeem",
+                        systemImage: "qrcode",
+                        style: .primary
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(deal.isExpired || isLoadingRedeem)
+                .opacity(deal.isExpired ? 0.45 : 1)
             }
-            .buttonStyle(.plain)
-            .disabled(deal.isExpired || isLoadingRedeem)
-            .opacity(deal.isExpired ? 0.45 : 1)
         }
-        .frame(maxWidth: .infinity)
     }
 
     private enum DealCTASStyle {
         case secondary
-        case accent
+        case primary
     }
 
     private func dealCTALabel(title: String, systemImage: String, style: DealCTASStyle) -> some View {
@@ -190,19 +201,11 @@ struct DealCard: View {
                 .font(WKCCTypography.callout.weight(.semibold))
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
-        .foregroundStyle(style == .secondary ? Color.black : WKCCColors.textOnPrimary)
+        .foregroundStyle(style == .secondary ? WKCCColors.primary : WKCCColors.textOnPrimary)
         .padding(.horizontal, WKCCSpacing.sm)
         .padding(.vertical, WKCCSpacing.xs)
-        .background(style == .secondary ? WKCCColors.cardBackground : WKCCColors.accent)
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: WKCCRadius.md)
-                .stroke(
-                    style == .secondary ? Color.black.opacity(0.35) : Color.clear,
-                    lineWidth: 1.5
-                )
-        )
+        .background(style == .secondary ? WKCCColors.cardBackground : WKCCColors.primary)
+        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm, style: .continuous))
     }
 
     private func openRedemption() async {
@@ -220,63 +223,28 @@ struct DealCard: View {
     }
 
     private var companyLogo: some View {
-        Image("PerkPlaceholder")
-            .resizable()
-            .scaledToFill()
-            .frame(width: logoSize, height: logoSize)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md))
+        BusinessLogoView(
+            url: businessLogoURL,
+            size: logoSize,
+            shape: .roundedRect(cornerRadius: WKCCRadius.md)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
     }
 
-    private var metaRow: some View {
-        HStack(spacing: WKCCSpacing.xs) {
-            if let expiration = deal.expirationDate {
-                Label {
-                    Text(expiration, format: .dateTime.month(.abbreviated).day())
-                } icon: {
-                    Image(systemName: "clock")
-                }
-                .font(WKCCTypography.body.weight(.medium))
-                .foregroundStyle(deal.isExpiringSoon ? WKCCColors.warning : Color.black.opacity(0.65))
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+    @ViewBuilder
+    private var expirationLabel: some View {
+        if let expiration = deal.expirationDate {
+            Label {
+                Text(expiration, format: .dateTime.month(.abbreviated).day())
+            } icon: {
+                Image(systemName: "clock")
             }
+            .font(WKCCTypography.body.weight(.medium))
+            .foregroundStyle(deal.isExpiringSoon ? WKCCColors.warning : Color.black)
+            .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
         }
-        .frame(minWidth: 0, alignment: .leading)
-    }
-}
-
-
-/// Full-width 2-child split (e.g. 0.4 / 0.6) that stretches to the proposed width.
-private struct DealCTARatioSplit: Layout {
-    var spacing: CGFloat
-    var leadingRatio: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-        let width = proposal.width ?? subviews.reduce(CGFloat(0)) { partial, subview in
-            partial + subview.sizeThatFits(.unspecified).width
-        } + spacing
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard subviews.count == 2 else { return }
-
-        let available = max(0, bounds.width - spacing)
-        let leadingWidth = available * leadingRatio
-        let trailingWidth = available - leadingWidth
-        let height = bounds.height
-
-        subviews[0].place(
-            at: CGPoint(x: bounds.minX, y: bounds.minY),
-            proposal: ProposedViewSize(width: leadingWidth, height: height)
-        )
-        subviews[1].place(
-            at: CGPoint(x: bounds.minX + leadingWidth + spacing, y: bounds.minY),
-            proposal: ProposedViewSize(width: trailingWidth, height: height)
-        )
     }
 }
 

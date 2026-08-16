@@ -14,11 +14,18 @@ final class DealsSearchViewModel {
     var selectedFilter: DealFilter = .all
 
     private let dealsService: any DealsServicing
+    private let businessService: any BusinessServicing
     private let recentSearchesKey = "deals.recentSearches"
     private let maxRecentSearches = 8
 
-    init(dealsService: any DealsServicing = AppDependencies.shared.dealsService) {
+    private(set) var businessLogoURLs: [String: URL] = [:]
+
+    init(
+        dealsService: any DealsServicing = AppDependencies.shared.dealsService,
+        businessService: any BusinessServicing = AppDependencies.shared.businessService
+    ) {
         self.dealsService = dealsService
+        self.businessService = businessService
         recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
     }
 
@@ -81,12 +88,25 @@ final class DealsSearchViewModel {
         errorMessage = nil
 
         do {
-            deals = try await dealsService.fetchDeals()
+            async let dealsTask = dealsService.fetchDeals()
+            async let businessesTask = businessService.fetchBusinesses()
+            deals = try await dealsTask
+            let businesses = (try? await businessesTask) ?? []
+            businessLogoURLs = Dictionary(
+                uniqueKeysWithValues: businesses.compactMap { business in
+                    guard let logoURL = business.logoURL else { return nil }
+                    return (business.id, logoURL)
+                }
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isLoading = false
+    }
+
+    func logoURL(for businessId: String) -> URL? {
+        businessLogoURLs[businessId]
     }
 
     func dismissError() {
