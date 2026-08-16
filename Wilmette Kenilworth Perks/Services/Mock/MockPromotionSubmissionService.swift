@@ -1,28 +1,38 @@
 import Foundation
 
 final class MockPromotionSubmissionService: PromotionSubmissionServicing {
-    private let store: MockPromotionSubmissionStore
-    private let dealsStore: MockDealsStore
+    private let storeOverride: MockPromotionSubmissionStore?
+    private let dealsStoreOverride: MockDealsStore?
 
     init(
-        store: MockPromotionSubmissionStore = .shared,
-        dealsStore: MockDealsStore = .shared
+        store: MockPromotionSubmissionStore? = nil,
+        dealsStore: MockDealsStore? = nil
     ) {
-        self.store = store
-        self.dealsStore = dealsStore
+        self.storeOverride = store
+        self.dealsStoreOverride = dealsStore
+    }
+
+    @MainActor
+    private func resolvedStore() -> MockPromotionSubmissionStore {
+        storeOverride ?? .shared
+    }
+
+    @MainActor
+    private func resolvedDealsStore() -> MockDealsStore {
+        dealsStoreOverride ?? .shared
     }
 
     func fetchSubmissions(status: PromotionSubmissionStatus?) async throws -> [PromotionSubmissionRecord] {
         try await simulateNetworkDelay()
         return await MainActor.run {
-            store.filtered(status: status)
+            resolvedStore().filtered(status: status)
         }
     }
 
     func fetchSubmission(id: String) async throws -> PromotionSubmissionRecord {
         try await simulateNetworkDelay()
         return try await MainActor.run {
-            guard let record = store.record(id: id) else {
+            guard let record = resolvedStore().record(id: id) else {
                 throw PromotionSubmissionError.notFound
             }
             return record
@@ -51,7 +61,7 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
         )
 
         return await MainActor.run {
-            store.append(record)
+            resolvedStore().append(record)
         }
     }
 
@@ -63,7 +73,7 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
         try await simulateNetworkDelay()
 
         return try await MainActor.run {
-            guard var record = store.record(id: id) else {
+            guard var record = resolvedStore().record(id: id) else {
                 throw PromotionSubmissionError.notFound
             }
             guard record.status == .pending else {
@@ -75,7 +85,7 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
                 record.adminNotes = adminNotes
             }
 
-            return store.update(record)
+            return resolvedStore().update(record)
         }
     }
 
@@ -83,7 +93,7 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
         try await simulateNetworkDelay()
 
         return try await MainActor.run {
-            guard var record = store.record(id: id) else {
+            guard var record = resolvedStore().record(id: id) else {
                 throw PromotionSubmissionError.notFound
             }
             guard record.status == .pending else {
@@ -106,9 +116,9 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
                 businessId: businessId,
                 businessName: record.companyName
             )
-            dealsStore.publish(summary: summary, detail: detail)
+            resolvedDealsStore().publish(summary: summary, detail: detail)
 
-            return store.update(record)
+            return resolvedStore().update(record)
         }
     }
 
@@ -116,7 +126,7 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
         try await simulateNetworkDelay()
 
         return try await MainActor.run {
-            guard var record = store.record(id: id) else {
+            guard var record = resolvedStore().record(id: id) else {
                 throw PromotionSubmissionError.notFound
             }
             guard record.status == .pending else {
@@ -130,14 +140,14 @@ final class MockPromotionSubmissionService: PromotionSubmissionServicing {
                 record.adminNotes = notes
             }
 
-            return store.update(record)
+            return resolvedStore().update(record)
         }
     }
 
     func pendingCount() async throws -> Int {
         try await simulateNetworkDelay(short: true)
         return await MainActor.run {
-            store.pendingCount()
+            resolvedStore().pendingCount()
         }
     }
 

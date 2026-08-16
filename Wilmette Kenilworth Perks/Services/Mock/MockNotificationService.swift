@@ -1,16 +1,16 @@
 import Foundation
 
 final class MockNotificationService: NotificationServicing {
-    private let store: MockNotificationStore
+    private let storeOverride: MockNotificationStore?
 
-    init(store: MockNotificationStore = .shared) {
-        self.store = store
+    init(store: MockNotificationStore? = nil) {
+        self.storeOverride = store
     }
 
     func fetchNotifications(for member: MemberProfile?, isAdmin: Bool) async throws -> [AppNotification] {
         try await simulateNetworkDelay(short: true)
         return await MainActor.run {
-            store.visibleNotifications(for: member, isAdmin: isAdmin)
+            resolvedStore().visibleNotifications(for: member, isAdmin: isAdmin)
         }
     }
 
@@ -18,6 +18,7 @@ final class MockNotificationService: NotificationServicing {
         try await simulateNetworkDelay(short: true)
 
         try await MainActor.run {
+            let store = resolvedStore()
             guard var notification = store.notification(id: id) else {
                 throw NotificationServiceError.notFound
             }
@@ -29,8 +30,13 @@ final class MockNotificationService: NotificationServicing {
     func markAllAsRead(for member: MemberProfile?, isAdmin: Bool) async throws {
         try await simulateNetworkDelay(short: true)
         await MainActor.run {
-            store.markAllAsRead(for: member, isAdmin: isAdmin)
+            resolvedStore().markAllAsRead(for: member, isAdmin: isAdmin)
         }
+    }
+
+    @MainActor
+    private func resolvedStore() -> MockNotificationStore {
+        storeOverride ?? .shared
     }
 
     private func simulateNetworkDelay(short: Bool = false) async throws {

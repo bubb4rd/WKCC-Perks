@@ -1,27 +1,32 @@
 import Foundation
 
 final class MockDealsService: DealsServicing {
-    private let store: MockDealsStore
+    private let storeOverride: MockDealsStore?
 
-    init(store: MockDealsStore = .shared) {
-        self.store = store
+    init(store: MockDealsStore? = nil) {
+        self.storeOverride = store
     }
 
     func fetchDeals() async throws -> [DealSummary] {
         try await Task.sleep(nanoseconds: 400_000_000)
         return await MainActor.run {
-            store.activeSummaries()
+            resolvedStore().activeSummaries()
         }
     }
 
     func fetchDeal(id: String) async throws -> DealDetail {
         try await Task.sleep(nanoseconds: 300_000_000)
         return try await MainActor.run {
-            guard let deal = store.detail(id: id), !deal.isArchived else {
+            guard let deal = resolvedStore().detail(id: id), !deal.isArchived else {
                 throw ContentError.notFound
             }
             return deal
         }
+    }
+
+    @MainActor
+    private func resolvedStore() -> MockDealsStore {
+        storeOverride ?? .shared
     }
 }
 

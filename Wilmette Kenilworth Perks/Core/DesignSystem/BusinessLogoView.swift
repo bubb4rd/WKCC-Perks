@@ -1,8 +1,17 @@
 import SwiftUI
 
-enum BusinessLogoShape {
+enum BusinessLogoShape: Shape {
     case circle
     case roundedRect(cornerRadius: CGFloat = WKCCRadius.md)
+
+    func path(in rect: CGRect) -> Path {
+        switch self {
+        case .circle:
+            Circle().path(in: rect)
+        case .roundedRect(let cornerRadius):
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).path(in: rect)
+        }
+    }
 }
 
 /// Displays a business logo URL, or a WKCC-branded placeholder when missing/failed.
@@ -34,7 +43,7 @@ struct BusinessLogoView: View {
         }
         .frame(width: size, height: size)
         .clipped()
-        .clipShape(clipShape)
+        .clipShape(shape)
         .accessibilityHidden(true)
     }
 
@@ -48,26 +57,5 @@ struct BusinessLogoView: View {
                 .padding(size * 0.18)
                 .accessibilityLabel(AppConfig.chamberName)
         }
-    }
-
-    private var clipShape: AnyShape {
-        switch shape {
-        case .circle:
-            AnyShape(Circle())
-        case .roundedRect(let cornerRadius):
-            AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-    }
-}
-
-private struct AnyShape: Shape {
-    private let pathBuilder: (CGRect) -> Path
-
-    init<S: Shape>(_ shape: S) {
-        pathBuilder = { rect in shape.path(in: rect) }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        pathBuilder(rect)
     }
 }

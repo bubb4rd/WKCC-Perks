@@ -1,23 +1,28 @@
 import Foundation
 
 final class MockPerksAdminService: PerksAdminServicing {
-    private let store: MockDealsStore
+    private let storeOverride: MockDealsStore?
 
-    init(store: MockDealsStore = .shared) {
-        self.store = store
+    init(store: MockDealsStore? = nil) {
+        self.storeOverride = store
+    }
+
+    @MainActor
+    private func resolvedStore() -> MockDealsStore {
+        storeOverride ?? .shared
     }
 
     func fetchAllPerks() async throws -> [DealSummary] {
         try await simulateNetworkDelay()
         return await MainActor.run {
-            store.allSummaries()
+            resolvedStore().allSummaries()
         }
     }
 
     func fetchPerk(id: String) async throws -> DealDetail {
         try await simulateNetworkDelay()
         return try await MainActor.run {
-            guard let detail = store.detail(id: id) else {
+            guard let detail = resolvedStore().detail(id: id) else {
                 throw ContentError.notFound
             }
             return detail
@@ -32,7 +37,7 @@ final class MockPerksAdminService: PerksAdminServicing {
         try await simulateNetworkDelay()
 
         let dealId = "deal-admin-\(UUID().uuidString.prefix(8))"
-        return try await MainActor.run {
+        return await MainActor.run {
             let summary = submission.makeDealSummary(
                 id: dealId,
                 businessId: businessId,
@@ -43,7 +48,7 @@ final class MockPerksAdminService: PerksAdminServicing {
                 businessId: businessId,
                 businessName: businessName
             )
-            store.upsert(summary: summary, detail: detail)
+            resolvedStore().upsert(summary: summary, detail: detail)
             return detail
         }
     }
@@ -57,6 +62,7 @@ final class MockPerksAdminService: PerksAdminServicing {
         try await simulateNetworkDelay()
 
         return try await MainActor.run {
+            let store = resolvedStore()
             guard store.detail(id: id) != nil else {
                 throw ContentError.notFound
             }
@@ -112,14 +118,14 @@ final class MockPerksAdminService: PerksAdminServicing {
     func archivePerk(id: String) async throws -> DealDetail {
         try await simulateNetworkDelay()
         return try await MainActor.run {
-            try store.archive(id: id, archivedBy: "admin-mock")
+            try resolvedStore().archive(id: id, archivedBy: "admin-mock")
         }
     }
 
     func unarchivePerk(id: String) async throws -> DealDetail {
         try await simulateNetworkDelay()
         return try await MainActor.run {
-            try store.unarchive(id: id)
+            try resolvedStore().unarchive(id: id)
         }
     }
 
