@@ -72,4 +72,7 @@ enum AppConfig {
 
     /// Fixed OTP for local/mock account linking. No email is sent in mock mode.
     static let mockLoginCode = "123123"
+
+    /// Password accepted by `MockAuthService` on the password sign-in screen.
+    static let mockPassword = "password"
 }

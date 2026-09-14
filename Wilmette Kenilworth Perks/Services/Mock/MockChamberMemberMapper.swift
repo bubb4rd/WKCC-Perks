@@ -77,6 +77,7 @@ enum MockChamberMemberMapper {
             companyName: record.name,
             companyLogoURL: MockBusinessLogoStore.logoURL(for: companyId),
             memberSince: parseDate(record.membershipEstablished),
+            hasPassword: false,
             entitlements: isActive
                 ? MemberEntitlements(
                     canViewDeals: true,

@@ -32,6 +32,7 @@ struct ProfileView: View {
         }
         .wkccPageBackground()
         .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .task(id: authManager.isChamberAdmin) {
@@ -328,6 +329,22 @@ struct ProfileView: View {
 
                     settingsDivider
                 }
+
+                NavigationLink {
+                    SetPasswordView()
+                } label: {
+                    settingsListRow(
+                        icon: "key.fill",
+                        title: authManager.member?.hasPassword == true ? "Reset Password" : "Create a Password",
+                        subtitle: authManager.member?.hasPassword == true
+                            ? "Update your sign-in password"
+                            : "Sign in faster next time",
+                        showsChevron: true
+                    )
+                }
+                .buttonStyle(.plain)
+
+                settingsDivider
 
                 NavigationLink {
                     HelpSupportView()

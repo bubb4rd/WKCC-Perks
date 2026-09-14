@@ -128,6 +128,7 @@ private struct RefreshMemberDTO: Decodable {
     let companyName: String?
     let companyLogoURL: String?
     let memberSince: Date?
+    let hasPassword: Bool?
     let entitlements: RefreshEntitlementsDTO
 
     func toMemberProfile() throws -> MemberProfile {
@@ -144,6 +145,7 @@ private struct RefreshMemberDTO: Decodable {
             companyName: companyName,
             companyLogoURL: companyLogoURL.flatMap(URL.init(string:)),
             memberSince: memberSince,
+            hasPassword: hasPassword ?? false,
             entitlements: MemberEntitlements(
                 canViewDeals: entitlements.canViewDeals,
                 canSaveDeals: entitlements.canSaveDeals,

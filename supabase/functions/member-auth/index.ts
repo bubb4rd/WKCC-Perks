@@ -250,13 +250,25 @@ function mapMembershipTier(raw: string | null | undefined): string {
   return allowed.has(value) ? value : "Basic";
 }
 
-function mapMember(
+async function memberHasPassword(email: string): Promise<boolean> {
+  if (!email) return false;
+  const supabase = supabaseAdmin();
+  const { count, error } = await supabase
+    .from("login_passwords")
+    .select("email", { count: "exact", head: true })
+    .eq("email", normalizeEmail(email));
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+async function mapMember(
   member: ChamberMemberRow,
   profile: AppProfileRow | null,
 ) {
   const { firstName, lastName } = deriveNames(member);
   const isActive = member.status === ACTIVE_STATUS;
   const isAdmin = profile?.is_chamber_admin === true;
+  const hasPassword = await memberHasPassword(member.email ?? "");
 
   return {
     id: String(member.cm_id),
@@ -271,6 +283,7 @@ function mapMember(
     companyName: member.name,
     companyLogoURL: member.logo_url ?? null,
     memberSince: member.membership_established,
+    hasPassword,
     entitlements: isActive
       ? {
         canViewDeals: true,
@@ -597,7 +610,7 @@ async function issueSession(member: ChamberMemberRow, profile: AppProfileRow) {
     accessToken,
     refreshToken,
     expiresAt: new Date((now + ACCESS_TOKEN_TTL_SECONDS) * 1000).toISOString(),
-    member: mapMember(member, profile),
+    member: await mapMember(member, profile),
   };
 }
 
@@ -723,6 +736,111 @@ async function handleVerifyCode(req: Request): Promise<Response> {
   return jsonResponse({ ...session, isFirstLink });
 }
 
+async function handleSignInPassword(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as {
+    email?: string;
+    password?: string;
+  } | null;
+  const email = typeof body?.email === "string" ? normalizeEmail(body.email) : "";
+  const password = typeof body?.password === "string" ? body.password : "";
+
+  if (!email || !password) {
+    return jsonResponse({ error: "email and password are required." }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+  const windowStart = new Date(Date.now() - REQUEST_CODE_WINDOW_MINUTES * 60 * 1000)
+    .toISOString();
+  const { count, error: countError } = await supabase
+    .from("edge_rate_limits")
+    .select("*", { count: "exact", head: true })
+    .eq("bucket", "password-sign-in")
+    .eq("subject", email)
+    .gte("created_at", windowStart);
+  if (countError) throw countError;
+  if ((count ?? 0) >= REQUEST_CODE_MAX_PER_WINDOW) {
+    return jsonResponse(
+      { error: "Too many attempts. Please try again later." },
+      429,
+    );
+  }
+
+  const { data: passwordOk, error: verifyError } = await supabase.rpc(
+    "verify_login_password",
+    { p_email: email, p_password: password },
+  );
+  if (verifyError) throw verifyError;
+
+  if (passwordOk !== true) {
+    const { error: insertError } = await supabase.from("edge_rate_limits").insert({
+      bucket: "password-sign-in",
+      subject: email,
+    });
+    if (insertError) throw insertError;
+    return jsonResponse(
+      { error: "That email or password is incorrect." },
+      401,
+    );
+  }
+
+  const member = await findEligibleMember(email);
+  if (!member) {
+    return jsonResponse(
+      { error: "Your membership is not currently active." },
+      403,
+    );
+  }
+
+  const existingProfile = await getProfile(email);
+  const isFirstLink = existingProfile == null;
+  const profile = await upsertProfile(email, member.cm_id);
+  const session = await issueSession(member, profile);
+  return jsonResponse({ ...session, isFirstLink });
+}
+
+async function handleSetPassword(req: Request): Promise<Response> {
+  let session;
+  try {
+    session = await requireSessionMember(req);
+  } catch (error) {
+    const status = (error as { status?: number }).status ?? 500;
+    const message = error instanceof Error ? error.message : "Unexpected error.";
+    return jsonResponse({ error: message }, status);
+  }
+
+  const body = await req.json().catch(() => null) as { password?: string } | null;
+  const password = typeof body?.password === "string" ? body.password : "";
+
+  if (password.length < 8) {
+    return jsonResponse(
+      { error: "Password must be at least 8 characters." },
+      400,
+    );
+  }
+
+  try {
+    await assertRateLimit(
+      "set-password",
+      session.email,
+      REQUEST_CODE_MAX_PER_WINDOW,
+      REQUEST_CODE_WINDOW_MINUTES,
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status ?? 500;
+    const message = error instanceof Error ? error.message : "Unexpected error.";
+    return jsonResponse({ error: message }, status);
+  }
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase.rpc("set_login_password", {
+    p_email: session.email,
+    p_password: password,
+  });
+  if (error) throw error;
+
+  return jsonResponse({ ok: true });
+}
+
 async function handleRefresh(req: Request): Promise<Response> {
   const body = await req.json().catch(() => null) as { refreshToken?: string } | null;
   const refreshToken = typeof body?.refreshToken === "string"
@@ -804,7 +922,7 @@ async function handleLogout(req: Request): Promise<Response> {
 async function handleMe(req: Request): Promise<Response> {
   try {
     const { member, profile } = await requireSessionMember(req);
-    return jsonResponse({ member: mapMember(member, profile) });
+    return jsonResponse({ member: await mapMember(member, profile) });
   } catch (error) {
     const status = (error as { status?: number }).status ?? 500;
     const message = error instanceof Error ? error.message : "Unexpected error.";
@@ -905,7 +1023,7 @@ async function handleCompanyLogo(req: Request): Promise<Response> {
   if (updateError) throw updateError;
 
   return jsonResponse({
-    member: mapMember(updated as ChamberMemberRow, session.profile),
+    member: await mapMember(updated as ChamberMemberRow, session.profile),
   });
 }
 
@@ -1160,6 +1278,12 @@ Deno.serve(async (req) => {
     }
     if (route === "verify-code" && req.method === "POST") {
       return await handleVerifyCode(req);
+    }
+    if (route === "sign-in-password" && req.method === "POST") {
+      return await handleSignInPassword(req);
+    }
+    if (route === "set-password" && req.method === "POST") {
+      return await handleSetPassword(req);
     }
     if (route === "refresh" && req.method === "POST") {
       return await handleRefresh(req);

@@ -21,7 +21,9 @@ struct AppRouter: View {
                         hasCompletedOnboarding = true
                     }
                 } else {
-                    LoginView()
+                    NavigationStack {
+                        LoginView()
+                    }
                 }
             case .authenticated:
                 MainTabView()

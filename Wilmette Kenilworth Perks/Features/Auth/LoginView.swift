@@ -64,6 +64,7 @@ struct LoginView: View {
             .padding(.bottom, WKCCSpacing.xxl)
         }
         .wkccPageBackground()
+        .toolbar(.hidden, for: .navigationBar)
         .onChange(of: authManager.isCodeSent) { _, sent in
             if sent {
                 codeDigits = Array(repeating: "", count: 6)
@@ -159,6 +160,17 @@ struct LoginView: View {
                 }
             }
             .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+            .padding(.top, WKCCSpacing.sm)
+
+            NavigationLink {
+                PasswordLoginView(initialEmail: email)
+            } label: {
+                Text("or Password sign-in")
+                    .font(WKCCTypography.callout.weight(.semibold))
+                    .foregroundStyle(WKCCColors.primary)
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(isLoading)
             .padding(.top, WKCCSpacing.sm)
         }
         .padding(WKCCSpacing.lg)

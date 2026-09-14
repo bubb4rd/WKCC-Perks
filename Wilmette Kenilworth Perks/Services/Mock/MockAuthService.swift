@@ -3,6 +3,7 @@ import Foundation
 final class MockAuthService: AuthServicing {
     private var lastRequestedEmail: String?
     private let linkedEmailsKey = "mock.linkedEmails"
+    private let memberPasswordsKey = "mock.memberPasswords"
 
     func requestLoginCode(email: String) async throws {
         try await Task.sleep(nanoseconds: AppConfig.mockAuthDelaySeconds / 2)
@@ -28,28 +29,31 @@ final class MockAuthService: AuthServicing {
         }
 
         _ = lastRequestedEmail ?? normalized
+        return try completeMockLogin(email: normalized)
+    }
 
-        let member: MemberProfile
-        if normalized == MockData.adminMember.email.lowercased() {
-            // Admin UI testing: allow chamber staff email even if absent from the export.
-            member = MockData.adminMember
-        } else if let record = MockChamberMemberStore.eligibleMember(for: normalized) {
-            member = MockChamberMemberMapper.map(record)
-        } else {
-            throw AuthError.membershipInactive
+    func signInWithPassword(email: String, password: String) async throws -> LoginResult {
+        try await Task.sleep(nanoseconds: AppConfig.mockAuthDelaySeconds)
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let memberPassword = memberPasswords()[normalized]
+        guard password == memberPassword || (memberPassword == nil && password == AppConfig.mockPassword) else {
+            throw AuthError.invalidCredentials
         }
+        return try completeMockLogin(email: normalized)
+    }
 
-        let isFirstLink = !hasLinked(email: normalized)
-        markLinked(email: normalized)
+    func setPassword(_ password: String) async throws {
+        try await Task.sleep(nanoseconds: AppConfig.mockAuthDelaySeconds / 2)
+        guard let stored = KeychainStore.loadSession() else {
+            throw AuthError.sessionExpired
+        }
+        var passwords = memberPasswords()
+        passwords[stored.member.email.lowercased()] = password
+        UserDefaults.standard.set(passwords, forKey: memberPasswordsKey)
+    }
 
-        let session = AuthSession(
-            accessToken: "mock-access-\(member.id)",
-            refreshToken: "mock-refresh-\(member.id)",
-            expiresAt: Calendar.current.date(byAdding: .day, value: 30, to: Date()),
-            member: member
-        )
-
-        return LoginResult(session: session, isFirstLink: isFirstLink)
+    private func memberPasswords() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: memberPasswordsKey) as? [String: String] ?? [:]
     }
 
     func restoreSession() async -> AuthSession? {
@@ -82,6 +86,30 @@ final class MockAuthService: AuthServicing {
         )
         try KeychainStore.save(stored)
         return updatedMember
+    }
+
+    private func completeMockLogin(email: String) throws -> LoginResult {
+        let member: MemberProfile
+        if email == MockData.adminMember.email.lowercased() {
+            // Admin UI testing: allow chamber staff email even if absent from the export.
+            member = MockData.adminMember
+        } else if let record = MockChamberMemberStore.eligibleMember(for: email) {
+            member = MockChamberMemberMapper.map(record)
+        } else {
+            throw AuthError.membershipInactive
+        }
+
+        let isFirstLink = !hasLinked(email: email)
+        markLinked(email: email)
+
+        let session = AuthSession(
+            accessToken: "mock-access-\(member.id)",
+            refreshToken: "mock-refresh-\(member.id)",
+            expiresAt: Calendar.current.date(byAdding: .day, value: 30, to: Date()),
+            member: member
+        )
+
+        return LoginResult(session: session, isFirstLink: isFirstLink)
     }
 
     private func hasLinked(email: String) -> Bool {

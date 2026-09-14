@@ -63,6 +63,7 @@ enum GrowthZoneMemberMapper {
             companyName: companyName,
             companyLogoURL: nil,
             memberSince: memberSince,
+            hasPassword: false,
             entitlements: entitlements
         )
     }

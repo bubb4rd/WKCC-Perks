@@ -11,6 +11,8 @@ final class AuthManager {
     private(set) var isCodeSent = false
     /// Session awaiting first-time confirmation before entering the app.
     private(set) var pendingConfirmationSession: AuthSession?
+    /// Inline error for the password sign-in screen; does not replace the login flow.
+    private(set) var passwordSignInError: String?
 
     private let authService: any AuthServicing
 
@@ -41,6 +43,37 @@ final class AuthManager {
             flowState = .unauthenticated
         } catch {
             isCodeSent = false
+            flowState = .error(error.localizedDescription)
+        }
+    }
+
+    func signInWithPassword(email: String, password: String) async {
+        guard flowState != .authenticating else { return }
+        flowState = .authenticating
+        passwordSignInError = nil
+        pendingEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingConfirmationSession = nil
+
+        do {
+            let result = try await authService.signInWithPassword(
+                email: pendingEmail,
+                password: password
+            )
+            isCodeSent = false
+
+            if result.isFirstLink {
+                pendingConfirmationSession = result.session
+                member = result.session.member
+                flowState = .confirmingLink
+            } else {
+                try KeychainStore.save(result.session)
+                pendingConfirmationSession = nil
+                applySession(result.session)
+            }
+        } catch let error as AuthError where error == .invalidCredentials || error == .rateLimited {
+            flowState = .unauthenticated
+            passwordSignInError = error.localizedDescription
+        } catch {
             flowState = .error(error.localizedDescription)
         }
     }
@@ -135,6 +168,28 @@ final class AuthManager {
         }
     }
 
+    /// Lets the signed-in, OTP-verified member set (or replace) their password sign-in.
+    func setPassword(_ password: String) async throws {
+        try await authService.setPassword(password)
+
+        guard let member else { return }
+        let updatedMember = member.withHasPassword(true)
+
+        guard let current = session else {
+            self.member = updatedMember
+            return
+        }
+
+        let updatedSession = AuthSession(
+            accessToken: current.accessToken,
+            refreshToken: current.refreshToken,
+            expiresAt: current.expiresAt,
+            member: updatedMember
+        )
+        try KeychainStore.save(updatedSession)
+        applySession(updatedSession)
+    }
+
     func uploadCompanyLogo(imageData: Data, contentType: String = "image/jpeg") async throws {
         let updatedMember = try await authService.uploadCompanyLogo(
             imageData: imageData,
@@ -196,6 +251,7 @@ extension AuthError: Equatable {
         switch (lhs, rhs) {
         case (.cancelled, .cancelled),
              (.invalidCode, .invalidCode),
+             (.invalidCredentials, .invalidCredentials),
              (.codeExpired, .codeExpired),
              (.rateLimited, .rateLimited),
              (.sessionExpired, .sessionExpired),

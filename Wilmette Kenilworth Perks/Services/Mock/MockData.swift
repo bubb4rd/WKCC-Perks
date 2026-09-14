@@ -14,6 +14,7 @@ enum MockData {
         companyName: "North Shore Financial Group",
         companyLogoURL: nil,
         memberSince: Calendar.current.date(from: DateComponents(year: 2019, month: 3, day: 15)),
+        hasPassword: false,
         entitlements: .fullMember
     )
 
@@ -37,6 +38,7 @@ enum MockData {
         companyName: "Wilmette/Kenilworth Chamber of Commerce",
         companyLogoURL: nil,
         memberSince: Calendar.current.date(from: DateComponents(year: 2015, month: 1, day: 1)),
+        hasPassword: false,
         entitlements: .chamberAdmin
     )
 
@@ -64,6 +66,7 @@ enum MockData {
         companyName: nil,
         companyLogoURL: nil,
         memberSince: nil,
+        hasPassword: false,
         entitlements: .restricted
     )
 

@@ -66,6 +66,53 @@ final class MemberAuthService: AuthServicing {
         return try response.toLoginResult()
     }
 
+    func signInWithPassword(email: String, password: String) async throws -> LoginResult {
+        let normalized = Self.normalizeEmail(email)
+        let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.contains("@"), !trimmedPassword.isEmpty else {
+            throw AuthError.invalidCredentials
+        }
+
+        struct Body: Encodable {
+            let email: String
+            let password: String
+        }
+
+        do {
+            let response = try await post(
+                path: "sign-in-password",
+                body: Body(email: normalized, password: trimmedPassword),
+                as: SessionDTO.self
+            )
+            return try response.toLoginResult()
+        } catch AuthError.invalidCode {
+            throw AuthError.invalidCredentials
+        }
+    }
+
+    func setPassword(_ password: String) async throws {
+        struct Body: Encodable { let password: String }
+        let body = Body(password: password)
+
+        do {
+            let accessToken = try await MemberSessionAccess.accessToken()
+            _ = try await postAuthed(
+                path: "set-password",
+                accessToken: accessToken,
+                body: body,
+                as: GenericOK.self
+            )
+        } catch AuthError.sessionExpired {
+            let accessToken = try await MemberSessionAccess.accessToken(forceRefresh: true)
+            _ = try await postAuthed(
+                path: "set-password",
+                accessToken: accessToken,
+                body: body,
+                as: GenericOK.self
+            )
+        }
+    }
+
     func restoreSession() async -> AuthSession? {
         guard var stored = KeychainStore.loadSession() else { return nil }
 
@@ -307,6 +354,7 @@ private struct MemberDTO: Decodable {
     let companyName: String?
     let companyLogoURL: String?
     let memberSince: Date?
+    let hasPassword: Bool?
     let entitlements: EntitlementsDTO
 
     func toMemberProfile() throws -> MemberProfile {
@@ -326,6 +374,7 @@ private struct MemberDTO: Decodable {
             companyName: companyName,
             companyLogoURL: companyLogoURL.flatMap(URL.init(string:)),
             memberSince: memberSince,
+            hasPassword: hasPassword ?? false,
             entitlements: MemberEntitlements(
                 canViewDeals: entitlements.canViewDeals,
                 canSaveDeals: entitlements.canSaveDeals,

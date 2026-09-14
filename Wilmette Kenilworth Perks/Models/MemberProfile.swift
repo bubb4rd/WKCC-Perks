@@ -13,6 +13,8 @@ struct MemberProfile: Codable, Identifiable, Equatable {
     let companyName: String?
     let companyLogoURL: URL?
     let memberSince: Date?
+    /// True once the member has set a password sign-in (via OTP-verified "Create a Password").
+    let hasPassword: Bool
     let entitlements: MemberEntitlements
 
     var fullName: String { "\(firstName) \(lastName)" }
@@ -37,6 +39,26 @@ struct MemberProfile: Codable, Identifiable, Equatable {
             companyName: companyName,
             companyLogoURL: url,
             memberSince: memberSince,
+            hasPassword: hasPassword,
+            entitlements: entitlements
+        )
+    }
+
+    func withHasPassword(_ value: Bool) -> MemberProfile {
+        MemberProfile(
+            id: id,
+            firstName: firstName,
+            lastName: lastName,
+            email: email,
+            phone: phone,
+            address: address,
+            membershipTier: membershipTier,
+            membershipStatus: membershipStatus,
+            companyId: companyId,
+            companyName: companyName,
+            companyLogoURL: companyLogoURL,
+            memberSince: memberSince,
+            hasPassword: value,
             entitlements: entitlements
         )
     }

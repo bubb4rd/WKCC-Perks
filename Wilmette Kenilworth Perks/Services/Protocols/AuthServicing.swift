@@ -27,6 +27,7 @@ struct LoginResult: Equatable {
 enum AuthError: LocalizedError {
     case cancelled
     case invalidCode
+    case invalidCredentials
     case codeExpired
     case rateLimited
     case sessionExpired
@@ -39,10 +40,12 @@ enum AuthError: LocalizedError {
             "Sign in was cancelled."
         case .invalidCode:
             "That code is incorrect. Please try again."
+        case .invalidCredentials:
+            "That email or password is incorrect."
         case .codeExpired:
             "That code has expired. Request a new one."
         case .rateLimited:
-            "Too many attempts. Please wait and request a new code."
+            "Too many attempts. Please wait and try again."
         case .sessionExpired:
             "Your session has expired. Please sign in again."
         case .membershipInactive:
@@ -56,6 +59,9 @@ enum AuthError: LocalizedError {
 protocol AuthServicing {
     func requestLoginCode(email: String) async throws
     func verifyLoginCode(email: String, code: String) async throws -> LoginResult
+    func signInWithPassword(email: String, password: String) async throws -> LoginResult
+    /// Creates or replaces the signed-in member's password sign-in credential.
+    func setPassword(_ password: String) async throws
     func restoreSession() async -> AuthSession?
     func refreshSession(_ session: AuthSession) async throws -> AuthSession
     func signOut() async
