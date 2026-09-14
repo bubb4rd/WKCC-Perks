@@ -70,13 +70,40 @@ struct EditBusinessProfileView: View {
                 formSection {
                     VStack(alignment: .leading, spacing: WKCCSpacing.xs) {
                         fieldLabel("Category")
-                        Picker("Category", selection: $viewModel.draft.category) {
+                        Menu {
                             ForEach(DealCategory.allCases) { category in
-                                Text(category.rawValue).tag(category)
+                                Button {
+                                    viewModel.draft.category = category
+                                } label: {
+                                    if category == viewModel.draft.category {
+                                        Label(category.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Text(category.rawValue)
+                                    }
+                                }
                             }
+                        } label: {
+                            HStack {
+                                Text(viewModel.draft.category.rawValue)
+                                    .font(WKCCTypography.body.weight(.medium))
+                                    .foregroundStyle(WKCCColors.primary)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(WKCCColors.primary)
+                                    .padding(6)
+                                    .background(
+                                        Circle().fill(WKCCColors.primary.opacity(0.1))
+                                    )
+                            }
+                            .padding(WKCCSpacing.sm)
+                            .background(WKCCColors.pageBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: WKCCRadius.sm, style: .continuous)
+                                    .stroke(WKCCColors.primary.opacity(0.05), lineWidth: 1)
+                            )
                         }
-                        .pickerStyle(.menu)
-                        .tint(WKCCColors.primary)
                     }
 
                     labeledTextEditor(

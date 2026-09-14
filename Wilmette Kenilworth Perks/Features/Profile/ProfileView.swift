@@ -336,9 +336,6 @@ struct ProfileView: View {
                     settingsListRow(
                         icon: "key.fill",
                         title: authManager.member?.hasPassword == true ? "Reset Password" : "Create a Password",
-                        subtitle: authManager.member?.hasPassword == true
-                            ? "Update your sign-in password"
-                            : "Sign in faster next time",
                         showsChevron: true
                     )
                 }
