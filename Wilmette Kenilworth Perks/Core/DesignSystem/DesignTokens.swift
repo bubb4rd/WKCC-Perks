@@ -3,8 +3,10 @@ import SwiftUI
 enum WKCCColors {
     /// Official WKCC blue — #2E3192
     static let primary = Color("WKCCPrimary")
+    static let primaryDark = Color("WKCCPrimaryDark")
     /// Official WKCC green — #8DC63F
     static let accent = Color("WKCCAccent")
+    static let accentDark = Color("WKCCAccentDark")
     /// Light grey page background
     static let pageBackground = Color("WKCCPageBackground")
     /// White card and panel background

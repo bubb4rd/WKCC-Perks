@@ -3,6 +3,7 @@ import SwiftUI
 struct WKCCPrimaryButton: View {
     let title: String
     var isLoading: Bool = false
+    var trailingIcon: String? = nil
     let action: () -> Void
 
     var body: some View {
@@ -14,6 +15,10 @@ struct WKCCPrimaryButton: View {
                 }
                 Text(title)
                     .font(WKCCTypography.headline)
+                if let trailingIcon, !isLoading {
+                    Image(systemName: trailingIcon)
+                        .font(.callout.weight(.semibold))
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, WKCCSpacing.md)
