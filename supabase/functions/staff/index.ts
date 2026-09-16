@@ -160,37 +160,182 @@ function mapMemberSummary(row: Record<string, unknown>) {
   };
 }
 
-async function handleListMembers(url: URL): Promise<Response> {
-  const supabase = supabaseAdmin();
-  const search = (url.searchParams.get("search") ?? "").trim();
-  const limitParam = Number(url.searchParams.get("limit") ?? "20");
-  const limit = Number.isFinite(limitParam)
-    ? Math.min(Math.max(Math.trunc(limitParam), 1), 50)
-    : 20;
+const MEMBER_PAGE_MAX = 50;
+const MEMBER_PAGE_DEFAULT = 20;
 
-  let query = supabase
-    .from("chamber_members")
-    .select("cm_id, name, display_name, email, status, membership_type")
-    .eq("status", ACTIVE_MEMBER_STATUS)
-    .order("display_name", { ascending: true })
-    .limit(limit);
+// Public sort keys -> chamber_members columns.
+const MEMBER_SORT_COLUMNS: Record<string, string> = {
+  name: "display_name",
+  email: "email",
+  tier: "membership_type",
+  status: "status",
+};
 
-  if (search) {
-    const asNumber = Number(search);
+// Inactive members are queryable on purpose (staff sometimes need to look up
+// a lapsed member), but only when asked for: `status` defaults to `active`,
+// matching this endpoint's behavior before the param existed.
+const MEMBER_STATUS_FILTERS = new Set(["active", "inactive", "all"]);
+
+type MemberListParams = {
+  search: string;
+  tier: string | null;
+  status: string;
+  sortColumn: string;
+  ascending: boolean;
+  limit: number;
+  offset: number;
+};
+
+function parseIntParam(
+  url: URL,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number | null {
+  const raw = url.searchParams.get(name);
+  if (raw === null || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min) return null;
+  return Math.min(value, max);
+}
+
+function parseMemberListParams(url: URL): MemberListParams | string {
+  const status = url.searchParams.get("status") || "active";
+  if (!MEMBER_STATUS_FILTERS.has(status)) {
+    return "status must be one of: active, inactive, all.";
+  }
+  const sort = url.searchParams.get("sort") || "name";
+  const sortColumn = MEMBER_SORT_COLUMNS[sort];
+  if (!sortColumn) {
+    return `sort must be one of: ${Object.keys(MEMBER_SORT_COLUMNS).join(", ")}.`;
+  }
+  const order = url.searchParams.get("order") || "asc";
+  if (order !== "asc" && order !== "desc") {
+    return "order must be asc or desc.";
+  }
+  const limit = parseIntParam(url, "limit", MEMBER_PAGE_DEFAULT, 1, MEMBER_PAGE_MAX);
+  if (limit === null) return "limit must be a positive integer.";
+  const offset = parseIntParam(url, "offset", 0, 0, Number.MAX_SAFE_INTEGER);
+  if (offset === null) return "offset must be a non-negative integer.";
+
+  return {
+    search: (url.searchParams.get("search") ?? "").trim(),
+    tier: url.searchParams.get("tier")?.trim() || null,
+    status,
+    sortColumn,
+    ascending: order === "asc",
+    limit,
+    offset,
+  };
+}
+
+// PostgREST `or=(...)` filters are comma/paren-delimited, so a raw search like
+// "Grill, Inc." would break the filter. Double-quote the value instead.
+function quoteFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+// Search + status filters shared by the page query and the tier facet query.
+// The tier filter is applied separately so facet counts ignore it.
+function filteredMembersQuery(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  columns: string,
+  params: MemberListParams,
+  options?: { count: "exact" },
+) {
+  let query = supabase.from("chamber_members").select(columns, options);
+
+  if (params.status === "active") {
+    query = query.eq("status", ACTIVE_MEMBER_STATUS);
+  } else if (params.status === "inactive") {
+    query = query.neq("status", ACTIVE_MEMBER_STATUS);
+  }
+
+  if (params.search) {
+    const asNumber = Number(params.search);
     if (Number.isInteger(asNumber)) {
       query = query.eq("cm_id", asNumber);
     } else {
+      const pattern = quoteFilterValue(`%${params.search}%`);
       query = query.or(
-        `name.ilike.%${search}%,display_name.ilike.%${search}%,email.ilike.%${search}%`,
+        `name.ilike.${pattern},display_name.ilike.${pattern},email.ilike.${pattern}`,
       );
     }
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
+  return query;
+}
+
+async function handleListMembers(url: URL): Promise<Response> {
+  const params = parseMemberListParams(url);
+  if (typeof params === "string") {
+    return jsonResponse({ error: params }, 400);
+  }
+  const supabase = supabaseAdmin();
+
+  let pageQuery = filteredMembersQuery(
+    supabase,
+    "cm_id, name, display_name, email, status, membership_type",
+    params,
+    { count: "exact" },
+  );
+  if (params.tier) {
+    pageQuery = pageQuery.eq("membership_type", params.tier);
+  }
+  // cm_id tiebreaker keeps page boundaries stable across offset requests.
+  pageQuery = pageQuery
+    .order(params.sortColumn, { ascending: params.ascending, nullsFirst: false })
+    .order("cm_id", { ascending: true })
+    .range(params.offset, params.offset + params.limit - 1);
+
+  // Tier facet counts for the current search/status. The roster is a few
+  // hundred rows, so fetching one column and counting here is cheap; move this
+  // to a GROUP BY rpc if it ever approaches PostgREST's max_rows (1000).
+  const tierQuery = filteredMembersQuery(supabase, "membership_type", params, {
+    count: "exact",
+  });
+
+  const [page, tierRows] = await Promise.all([pageQuery, tierQuery]);
+  if (tierRows.error) throw tierRows.error;
+  let rows = (page.data ?? []) as unknown as Record<string, unknown>[];
+  let total = page.count ?? 0;
+  if (page.error?.code === "PGRST103") {
+    // Offset past the end (e.g. the roster shrank while paging): PostgREST
+    // answers 416, but callers should just see an empty page + real total.
+    let countQuery = filteredMembersQuery(supabase, "cm_id", params, { count: "exact" });
+    if (params.tier) countQuery = countQuery.eq("membership_type", params.tier);
+    const counted = await countQuery.limit(1);
+    if (counted.error) throw counted.error;
+    rows = [];
+    total = counted.count ?? 0;
+  } else if (page.error) {
+    throw page.error;
+  }
+
+  const tierCounts = new Map<string, number>();
+  const facetRows = (tierRows.data ?? []) as unknown as Record<string, unknown>[];
+  for (const row of facetRows) {
+    const tier = row.membership_type as string | null;
+    if (tier) tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+  }
+  const totalAllTiers = tierRows.count ?? facetRows.length;
+  if (facetRows.length < totalAllTiers) {
+    console.warn(
+      `staff members: tier facets truncated (${facetRows.length}/${totalAllTiers} rows)`,
+    );
+  }
 
   return jsonResponse({
-    members: (data ?? []).map(mapMemberSummary),
+    members: rows.map(mapMemberSummary),
+    total,
+    limit: params.limit,
+    offset: params.offset,
+    // Count across all tiers (incl. untiered) for the current search/status.
+    totalAllTiers,
+    tiers: [...tierCounts]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tier, count]) => ({ tier, count })),
   });
 }
 
@@ -444,7 +589,7 @@ Deno.serve(async (req) => {
     const parts = pathParts(url.pathname);
     const auth = await requireStaffAuth(req);
 
-    // GET /members?search=&limit=
+    // GET /members?search=&tier=&status=&sort=&order=&limit=&offset=
     if (req.method === "GET" && parts.length === 1 && parts[0] === "members") {
       return await handleListMembers(url);
     }
