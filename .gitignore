@@ -11,6 +11,11 @@ DerivedData/
 
 # Supabase CLI local cache (may include connection URLs)
 supabase/.temp/
+supabase/.branches/
+
+# Local-only secrets for edge functions (AUTH_JWT_SECRET, API keys, etc.)
+supabase/functions/.env
+supabase/functions/.env.*
 
 # Cursor local plans / IDE
 .cursor/
