@@ -173,6 +173,8 @@ function mapMemberSummary(row: Record<string, unknown>) {
     email: row.email ?? null,
     status: row.status === ACTIVE_MEMBER_STATUS ? "active" : "inactive",
     tierRaw: row.membership_type ?? null,
+    logoUrl: row.logo_url ?? null,
+    category: row.category ?? null,
   };
 }
 
@@ -292,7 +294,7 @@ async function handleListMembers(url: URL): Promise<Response> {
 
   let pageQuery = filteredMembersQuery(
     supabase,
-    "cm_id, name, display_name, email, status, membership_type",
+    "cm_id, name, display_name, email, status, membership_type, logo_url, category",
     params,
     { count: "exact" },
   );
@@ -360,7 +362,7 @@ async function handleGetMember(cmId: number): Promise<Response> {
   const { data: member, error } = await supabase
     .from("chamber_members")
     .select(
-      "cm_id, name, display_name, email, status, membership_type, membership_established, category",
+      "cm_id, name, display_name, email, status, membership_type, membership_established, logo_url, category, short_description, website_url, phone, address, address_public",
     )
     .eq("cm_id", cmId)
     .maybeSingle();
@@ -376,12 +378,18 @@ async function handleGetMember(cmId: number): Promise<Response> {
   if (tierError) throw tierError;
   const tierCode = typeof tier === "string" ? tier : null;
 
+  // Staff always get the stored address, even when address_public is false.
+  // member-auth GET business hides it from non-owners; this endpoint does not.
   return jsonResponse({
     member: {
       ...mapMemberSummary(member),
       tierCode,
-      category: member.category ?? null,
       memberSince: member.membership_established ?? null,
+      shortDescription: member.short_description ?? null,
+      websiteUrl: member.website_url ?? null,
+      phone: member.phone ?? null,
+      address: member.address ?? null,
+      addressPublic: member.address_public !== false,
     },
   });
 }
