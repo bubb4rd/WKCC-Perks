@@ -2,9 +2,25 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 // MVP staff API for the Member Success Hub: search a member, see what
 // they're entitled to and what's been fulfilled, record a fulfillment.
-// No CORS headers are set on purpose -- this is a server-to-server /
-// curl-verified surface for now, not yet exposed to a browser console. Add a
-// real per-origin allowlist before any browser client calls this.
+// Now consumed by the Member Success Hub web app (a real browser client),
+// so CORS is scoped to an explicit origin allowlist -- never "*".
+
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:5173",
+  "https://hub.wilmettekenilworth.com", // placeholder -- update once the real subdomain is chosen
+]);
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    Vary: "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
 
 const ACTIVE_MEMBER_STATUS = "2";
 
@@ -583,7 +599,7 @@ async function handleCreateFulfillment(
   }, 201);
 }
 
-Deno.serve(async (req) => {
+async function handleRequest(req: Request): Promise<Response> {
   try {
     const url = new URL(req.url);
     const parts = pathParts(url.pathname);
@@ -643,4 +659,19 @@ Deno.serve(async (req) => {
     console.error("staff error:", message);
     return jsonResponse({ error: message }, status);
   }
+}
+
+Deno.serve(async (req) => {
+  const cors = corsHeaders(req.headers.get("origin"));
+
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: cors });
+  }
+
+  const response = await handleRequest(req);
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(cors)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, { status: response.status, headers });
 });
