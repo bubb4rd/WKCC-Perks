@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
-  "https://hub.wilmettekenilworth.com", // placeholder -- update once the real subdomain is chosen
+  "https://benefitswkcc.netlify.app", // placeholder -- update once the real subdomain is chosen
 ]);
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -16,10 +16,20 @@ function corsHeaders(origin: string | null): Record<string, string> {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     Vary: "Origin",
   };
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
   }
   return headers;
+}
+
+function isAllowedOrigin(origin: string): boolean {
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const { protocol, hostname } = new URL(origin);
+    return protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
 }
 
 const ACTIVE_MEMBER_STATUS = "2";
