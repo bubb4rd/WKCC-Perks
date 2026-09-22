@@ -208,6 +208,18 @@ function mapMemberSummary(row: Record<string, unknown>) {
 
 const MEMBER_PAGE_MAX = 50;
 const MEMBER_PAGE_DEFAULT = 20;
+// Mirrors MEMBER_PAGE_MAX -- a by-email lookup is bounded the same as a page.
+const MEMBER_EMAIL_LOOKUP_MAX = 50;
+// Mirrors MEMBER_PAGE_MAX -- a bulk fulfillment-summary request is bounded
+// the same as a page (see #2).
+const FULFILLMENT_SUMMARY_MAX = 50;
+// Chunk sizes for the manual joins in handleFulfillmentSummary, kept well
+// under PostgREST's max_rows (1000) -- see the tier-facet comment below.
+// Members per chunk when querying benefit_entitlements by cm_id (each member
+// can carry ~20 entitlements across periods).
+const FULFILLMENT_SUMMARY_CHUNK = 10;
+// Entitlement ids per chunk when querying benefit_fulfillments.
+const FULFILLMENT_ID_CHUNK = 200;
 
 // Public sort keys -> chamber_members columns.
 const MEMBER_SORT_COLUMNS: Record<string, string> = {
@@ -385,6 +397,43 @@ async function handleListMembers(url: URL): Promise<Response> {
   });
 }
 
+// Batch display lookup for decorating email mentions (activity actors, lead
+// owners off the admin's team roster) without paging the whole roster --
+// see #48. `email` on chamber_members is citext, so `.in()` is already
+// case-insensitive; no ilike chain needed. Unmatched emails are silently
+// omitted (not padded with nulls), and there's no status/tier/sort -- an
+// inactive member's name/logo should still decorate a historical row.
+async function handleMembersByEmail(url: URL): Promise<Response> {
+  const raw = url.searchParams.get("emails") ?? "";
+  const emails = [
+    ...new Set(
+      raw
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+  if (emails.length === 0) {
+    return jsonResponse({ error: "emails is required." }, 400);
+  }
+  if (emails.length > MEMBER_EMAIL_LOOKUP_MAX) {
+    return jsonResponse(
+      { error: `emails must not exceed ${MEMBER_EMAIL_LOOKUP_MAX}.` },
+      400,
+    );
+  }
+
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("chamber_members")
+    .select("cm_id, name, display_name, email, status, membership_type, logo_url, category")
+    .in("email", emails)
+    .order("cm_id", { ascending: true });
+  if (error) throw error;
+
+  return jsonResponse({ members: (data ?? []).map(mapMemberSummary) });
+}
+
 async function handleGetMember(cmId: number): Promise<Response> {
   const supabase = supabaseAdmin();
   const { data: member, error } = await supabase
@@ -532,6 +581,139 @@ async function handleGetMemberBenefits(cmId: number): Promise<Response> {
   });
 
   return jsonResponse({ cmId, benefits });
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+type EntitlementRow = { id: string; cm_id: number; benefit_code: string };
+
+/**
+ * Bulk completed/total fulfillment rollup for a page of the Members list,
+ * replacing an N+1 `GET /members/:cmId/benefits` call per visible row (#2).
+ * Mirrors the "fulfilled" definition already used client-side and by
+ * `handleBenefitsSummary`: entitlements whose catalog tracking_mode is
+ * passive_continuous never count toward `total` (nothing for staff to
+ * fulfill on those); an entitlement counts toward `completed` once it has
+ * at least one fulfillment in DELIVERED_STATUSES. Sums across all periods --
+ * same as handleGetMemberBenefits's per-entitlement query, which has no date
+ * filter -- so a member's number here matches what their own detail page
+ * shows.
+ *
+ * Every requested cmId is zero-filled in the response, including ids with no
+ * entitlements at all and ids that don't exist, so the client can tell
+ * "loaded, nothing to show" apart from "hasn't loaded yet".
+ */
+async function handleFulfillmentSummary(url: URL): Promise<Response> {
+  const raw = url.searchParams.get("cmIds") ?? "";
+  const rawIds = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const cmIds = [...new Set(rawIds.map(Number))];
+  if (cmIds.length === 0 || cmIds.some((id) => !Number.isInteger(id))) {
+    return jsonResponse(
+      { error: "cmIds must be a comma-separated list of member ids." },
+      400,
+    );
+  }
+  if (cmIds.length > FULFILLMENT_SUMMARY_MAX) {
+    return jsonResponse(
+      { error: `cmIds must not exceed ${FULFILLMENT_SUMMARY_MAX}.` },
+      400,
+    );
+  }
+
+  const supabase = supabaseAdmin();
+
+  // Small, static-ish table -- filter passive_continuous benefits in memory
+  // rather than a join, same reasoning as handleListStaffUsers below.
+  const { data: catalogRows, error: catalogError } = await supabase
+    .from("benefit_catalog")
+    .select("code, tracking_mode");
+  if (catalogError) throw catalogError;
+  const passiveCodes = new Set(
+    (catalogRows ?? [])
+      .filter((c) => c.tracking_mode === "passive_continuous")
+      .map((c) => c.code as string),
+  );
+
+  async function fetchEntitlements(ids: number[]): Promise<EntitlementRow[]> {
+    const chunks = await Promise.all(
+      chunk(ids, FULFILLMENT_SUMMARY_CHUNK).map((batch) =>
+        supabase.from("benefit_entitlements").select("id, cm_id, benefit_code").in("cm_id", batch),
+      ),
+    );
+    const rows: EntitlementRow[] = [];
+    for (const res of chunks) {
+      if (res.error) throw res.error;
+      rows.push(...((res.data ?? []) as unknown as EntitlementRow[]));
+    }
+    return rows;
+  }
+
+  const entitlementRows = await fetchEntitlements(cmIds);
+
+  // A member with zero entitlement rows may just never have been backfilled
+  // -- handleGetMemberBenefits does that on every single-member read via
+  // generate_entitlements; this bulk endpoint only pays that cost for
+  // members that actually need it, not the whole page every time.
+  const coveredCmIds = new Set(entitlementRows.map((r) => r.cm_id));
+  const uncovered = cmIds.filter((id) => !coveredCmIds.has(id));
+  if (uncovered.length > 0) {
+    const genResults = await Promise.allSettled(
+      uncovered.map((cmId) =>
+        supabase.rpc("generate_entitlements", {
+          p_cm_id: cmId,
+          p_period_start: null,
+          p_period_end: null,
+        }),
+      ),
+    );
+    // A single member's backfill failing (e.g. a bad cmId, or a genuinely
+    // non-entitlement-bearing tier that generates zero rows on purpose)
+    // shouldn't fail the whole page -- they just stay zero-filled below.
+    for (const result of genResults) {
+      if (result.status === "rejected") {
+        console.warn("fulfillment-summary: generate_entitlements failed", result.reason);
+      }
+    }
+    entitlementRows.push(...(await fetchEntitlements(uncovered)));
+  }
+
+  const actionableByMember = new Map<number, string[]>();
+  for (const row of entitlementRows) {
+    if (passiveCodes.has(row.benefit_code)) continue;
+    const list = actionableByMember.get(row.cm_id) ?? [];
+    list.push(row.id);
+    actionableByMember.set(row.cm_id, list);
+  }
+
+  const allActionableIds = [...actionableByMember.values()].flat();
+  const deliveredIds = new Set<string>();
+  if (allActionableIds.length > 0) {
+    const chunks = await Promise.all(
+      chunk(allActionableIds, FULFILLMENT_ID_CHUNK).map((batch) =>
+        supabase
+          .from("benefit_fulfillments")
+          .select("entitlement_id")
+          .in("entitlement_id", batch)
+          .in("status", DELIVERED_STATUSES),
+      ),
+    );
+    for (const res of chunks) {
+      if (res.error) throw res.error;
+      for (const row of res.data ?? []) deliveredIds.add(row.entitlement_id as string);
+    }
+  }
+
+  const summaries = cmIds.map((cmId) => {
+    const actionable = actionableByMember.get(cmId) ?? [];
+    const completed = actionable.filter((id) => deliveredIds.has(id)).length;
+    return { cmId, completed, total: actionable.length };
+  });
+
+  return jsonResponse({ summaries });
 }
 
 const BENEFITS_TREND_MONTHS = 6;
@@ -1103,6 +1285,30 @@ async function handleRequest(req: Request): Promise<Response> {
     ) {
       requireStaffAccess(auth);
       return await handleBenefitActivity(url);
+    }
+
+    // GET /members/by-email?emails=a@x.com,b@y.com -- batch display lookup
+    // (#48). Must stay registered before the /members/:cmId branch below:
+    // "by-email" is not a valid cmId, so if this fell through to that branch
+    // it would 400 "Invalid member id." before ever reaching this handler.
+    if (
+      req.method === "GET" && parts.length === 2 && parts[0] === "members" && parts[1] === "by-email"
+    ) {
+      requireStaffAccess(auth);
+      return await handleMembersByEmail(url);
+    }
+
+    // GET /members/fulfillment-summary?cmIds=101,102 -- bulk completed/total
+    // rollup for the Members list (#2). Same route-order dependency as
+    // by-email above: "fulfillment-summary" is not a valid cmId either.
+    if (
+      req.method === "GET" &&
+      parts.length === 2 &&
+      parts[0] === "members" &&
+      parts[1] === "fulfillment-summary"
+    ) {
+      requireStaffAccess(auth);
+      return await handleFulfillmentSummary(url);
     }
 
     // GET /members/:cmId -- staff can read any member; a business member may
