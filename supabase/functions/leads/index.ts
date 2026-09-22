@@ -430,7 +430,7 @@ async function handleSummary(): Promise<Response> {
     .toISOString();
   const today = now.toISOString().slice(0, 10);
 
-  const [openRes, newRes, wonRes, overdueRes] = await Promise.all([
+  const [openRes, newRes, wonRes, overdueRes, statusRes] = await Promise.all([
     supabase
       .from("leads")
       .select("id", { count: "exact", head: true })
@@ -449,10 +449,23 @@ async function handleSummary(): Promise<Response> {
       .select("id", { count: "exact", head: true })
       .in("status", [...OPEN_STATUSES])
       .lt("next_follow_up_on", today),
+    // Full pipeline breakdown for the dashboard's status donut. Leads are a
+    // low-volume table (a chamber's whole pipeline, not a transaction log),
+    // so counting in JS beats a second round trip for a GROUP BY RPC.
+    supabase.from("leads").select("status"),
   ]);
 
-  for (const res of [openRes, newRes, wonRes, overdueRes]) {
+  for (const res of [openRes, newRes, wonRes, overdueRes, statusRes]) {
     if (res.error) throw res.error;
+  }
+
+  const byStatus: Record<string, number> = Object.fromEntries(
+    STATUSES.map((s) => [s, 0]),
+  );
+  for (const row of statusRes.data ?? []) {
+    if (typeof row.status === "string" && row.status in byStatus) {
+      byStatus[row.status]++;
+    }
   }
 
   return jsonResponse({
@@ -460,6 +473,7 @@ async function handleSummary(): Promise<Response> {
     newLast7Days: newRes.count ?? 0,
     wonThisMonth: wonRes.count ?? 0,
     overdueFollowUps: overdueRes.count ?? 0,
+    byStatus,
   });
 }
 

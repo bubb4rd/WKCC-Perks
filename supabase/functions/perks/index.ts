@@ -344,12 +344,25 @@ function mapDealSummary(row: Record<string, unknown>) {
   };
 }
 
-function mapDealDetail(row: Record<string, unknown>) {
+type BusinessProfile = {
+  logoUrl: string | null;
+  email: string | null;
+  phone: string | null;
+  websiteUrl: string | null;
+  address: string | null;
+  shortDescription: string | null;
+};
+
+function mapDealDetail(
+  row: Record<string, unknown>,
+  business: BusinessProfile | null = null,
+) {
   return {
     id: String(row.id),
     title: row.title,
     businessId: row.business_id,
     businessName: row.business_name,
+    shortDescription: row.short_description ?? "",
     description: row.description ?? "",
     terms: row.terms ?? null,
     redemptionInstructions: row.redemption_instructions ?? "",
@@ -361,6 +374,62 @@ function mapDealDetail(row: Record<string, unknown>) {
     membersOnly: Boolean(row.members_only),
     isFeatured: Boolean(row.is_featured),
     archivedAt: row.archived_at ?? null,
+    businessLogoUrl: business?.logoUrl ?? null,
+    businessEmail: business?.email ?? null,
+    businessPhone: business?.phone ?? null,
+    businessWebsiteUrl: business?.websiteUrl ?? null,
+    businessAddress: business?.address ?? null,
+    businessShortDescription: business?.shortDescription ?? null,
+  };
+}
+
+async function loadBusinessProfile(
+  businessId: unknown,
+): Promise<BusinessProfile | null> {
+  const id = String(businessId ?? "").trim();
+  // ChamberMaster ids are integers, including 0 and negatives used in fixtures.
+  if (!/^-?\d+$/.test(id)) return null;
+  const cmId = Number.parseInt(id, 10);
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("chamber_members")
+    .select(
+      "logo_url, email, phone, website_url, address, short_description",
+    )
+    .eq("cm_id", cmId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    logoUrl: (data.logo_url as string | null) ?? null,
+    email: (data.email as string | null) ?? null,
+    phone: (data.phone as string | null) ?? null,
+    websiteUrl: (data.website_url as string | null) ?? null,
+    address: (data.address as string | null) ?? null,
+    shortDescription: (data.short_description as string | null) ?? null,
+  };
+}
+
+async function dealDetailResponse(
+  row: Record<string, unknown>,
+  status = 200,
+): Promise<Response> {
+  const business = await loadBusinessProfile(row.business_id);
+  return jsonResponse(mapDealDetail(row, business), status);
+}
+
+function dealContentPatch(fields: Record<string, string>) {
+  return {
+    title: fields.title,
+    short_description: fields.shortDescription,
+    description: fields.fullDescription,
+    terms: fields.terms || null,
+    redemption_instructions: fields.redemptionInstructions,
+    redemption_code: fields.redemptionCode || null,
+    category: fields.category,
+    start_date: fields.startDate,
+    end_date: fields.endDate,
+    updated_at: new Date().toISOString(),
   };
 }
 
@@ -461,7 +530,7 @@ async function handleGetDeal(
   if (!options.allowArchived && data.archived_at != null) {
     return jsonResponse({ error: "Deal not found." }, 404);
   }
-  return jsonResponse(mapDealDetail(data));
+  return dealDetailResponse(data);
 }
 
 async function handleListSubmissions(
@@ -854,7 +923,7 @@ async function handleAdminCreateDeal(
     })
   );
 
-  return jsonResponse(mapDealDetail(data), 201);
+  return dealDetailResponse(data, 201);
 }
 
 async function handleRegisterDeviceToken(
@@ -927,6 +996,27 @@ async function handleUnregisterDeviceToken(
   return jsonResponse({ ok: true });
 }
 
+async function handleUpdateDealContent(
+  id: string,
+  submission: Record<string, unknown>,
+): Promise<Response> {
+  const validated = validateSubmissionFields(submission);
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("deals")
+    .update(dealContentPatch(validated.fields))
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return jsonResponse({ error: "Deal not found." }, 404);
+  return dealDetailResponse(data);
+}
+
 async function handleAdminUpdateDeal(
   auth: AuthContext,
   id: string,
@@ -935,39 +1025,50 @@ async function handleAdminUpdateDeal(
   requireAdmin(auth);
   const body = await req.json().catch(() => null) as {
     submission?: Record<string, unknown>;
-    businessId?: string;
-    businessName?: string;
   } | null;
 
-  if (!body?.submission || !body.businessId || !body.businessName) {
+  if (!body?.submission) {
     return jsonResponse({ error: "Invalid update payload." }, 400);
   }
 
   const supabase = supabaseAdmin();
   const { data: existing, error: fetchError } = await supabase
     .from("deals")
-    .select("is_featured")
+    .select("id")
     .eq("id", id)
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!existing) return jsonResponse({ error: "Deal not found." }, 404);
 
-  const row = dealInsertFromSubmission({
-    submission: body.submission,
-    businessId: body.businessId,
-    businessName: body.businessName,
-    createdBy: auth.memberId,
-    isFeatured: Boolean(existing.is_featured),
-  });
+  return handleUpdateDealContent(id, body.submission);
+}
 
-  const { data, error } = await supabase
+async function handleOwnerUpdateDeal(
+  auth: AuthContext,
+  id: string,
+  req: Request,
+): Promise<Response> {
+  const body = await req.json().catch(() => null) as {
+    submission?: Record<string, unknown>;
+  } | null;
+
+  if (!body?.submission) {
+    return jsonResponse({ error: "Invalid update payload." }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+  const { data: existing, error: fetchError } = await supabase
     .from("deals")
-    .update(row)
+    .select("id, business_id")
     .eq("id", id)
-    .select("*")
-    .single();
-  if (error) throw error;
-  return jsonResponse(mapDealDetail(data));
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!existing) return jsonResponse({ error: "Deal not found." }, 404);
+  if (String(existing.business_id) !== String(auth.cmId)) {
+    return jsonResponse({ error: "Forbidden." }, 403);
+  }
+
+  return handleUpdateDealContent(id, body.submission);
 }
 
 async function handleAdminArchiveDeal(
@@ -999,7 +1100,7 @@ async function handleAdminArchiveDeal(
     .select("*")
     .single();
   if (error) throw error;
-  return jsonResponse(mapDealDetail(data));
+  return dealDetailResponse(data);
 }
 
 async function handleAdminUnarchiveDeal(
@@ -1031,7 +1132,7 @@ async function handleAdminUnarchiveDeal(
     .select("*")
     .single();
   if (error) throw error;
-  return jsonResponse(mapDealDetail(data));
+  return dealDetailResponse(data);
 }
 
 Deno.serve(async (req) => {
@@ -1070,6 +1171,11 @@ Deno.serve(async (req) => {
     // GET /deals/:id
     if (req.method === "GET" && parts.length === 2 && parts[0] === "deals") {
       return await handleGetDeal(parts[1]);
+    }
+
+    // PATCH /deals/:id (owning business only)
+    if (req.method === "PATCH" && parts.length === 2 && parts[0] === "deals") {
+      return await handleOwnerUpdateDeal(auth, parts[1], req);
     }
 
     // GET /submissions
