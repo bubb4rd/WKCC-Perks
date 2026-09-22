@@ -13,7 +13,7 @@ const ALLOWED_ORIGINS = new Set([
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, content-type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     Vary: "Origin",
   };
   if (origin && isAllowedOrigin(origin)) {
@@ -61,6 +61,8 @@ const NON_CONSUMING_STATUSES = new Set(["declined", "not_applicable"]);
 
 type AuthContext = {
   email: string;
+  isAdmin: boolean;
+  cmId: number | null;
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -130,10 +132,14 @@ function bearerToken(req: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-// MVP auth: reuses the same bearer-token session as member-auth/perks, then
-// requires app_profiles.is_chamber_admin. Does not yet check staff_roles --
-// that table exists for later role granularity (see the WKCC Benefit
-// Ledger's Phase 1 plan) but every admin has full staff access for now.
+// MVP auth: reuses the same bearer-token session as member-auth/perks. Most
+// of this API is staff-only (app_profiles.is_chamber_admin) -- see
+// requireStaffAccess below -- but a business member may read their own
+// record (see requireMemberAccess), so this just authenticates the caller
+// and returns their admin flag + own cm_id; endpoints decide what to allow.
+// Does not yet check staff_roles -- that table exists for later role
+// granularity (see the WKCC Benefit Ledger's Phase 1 plan) but every admin
+// has full staff access for now.
 async function requireStaffAuth(req: Request): Promise<AuthContext> {
   const token = bearerToken(req);
   if (!token) {
@@ -157,16 +163,28 @@ async function requireStaffAuth(req: Request): Promise<AuthContext> {
   const supabase = supabaseAdmin();
   const { data: profile, error } = await supabase
     .from("app_profiles")
-    .select("email, is_chamber_admin")
+    .select("email, cm_id, is_chamber_admin")
     .eq("email", email)
     .maybeSingle();
   if (error) throw error;
 
-  if (profile?.is_chamber_admin !== true) {
+  return {
+    email,
+    isAdmin: profile?.is_chamber_admin === true,
+    cmId: typeof profile?.cm_id === "number" ? profile.cm_id : null,
+  };
+}
+
+function requireStaffAccess(auth: AuthContext): void {
+  if (!auth.isAdmin) {
     throw Object.assign(new Error("Staff access required."), { status: 403 });
   }
+}
 
-  return { email };
+/** Staff can read any member; a business member may only read their own. */
+function requireMemberAccess(auth: AuthContext, cmId: number): void {
+  if (auth.isAdmin || auth.cmId === cmId) return;
+  throw Object.assign(new Error("Staff access required."), { status: 403 });
 }
 
 function pathParts(pathname: string): string[] {
@@ -516,6 +534,236 @@ async function handleGetMemberBenefits(cmId: number): Promise<Response> {
   return jsonResponse({ cmId, benefits });
 }
 
+const BENEFITS_TREND_MONTHS = 6;
+// Statuses that represent delivered value, for the dashboard's monthly
+// trend -- a raw count of touched records (including "declined") would
+// overstate what members actually got.
+const DELIVERED_STATUSES = ["completed", "redeemed"];
+
+function monthKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Org-wide benefit-fulfillment aggregate for the Dashboard: how much of
+ * members' current-period allowances have actually been used, how many
+ * benefits were delivered per month over the trailing window, and the same
+ * used/allowance split broken out per membership tier. See README
+ * "Dashboard data honesty" -- this is what backs the fulfillment card
+ * instead of a ComingSoon placeholder.
+ */
+async function handleBenefitsSummary(): Promise<Response> {
+  const supabase = supabaseAdmin();
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const trendStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (BENEFITS_TREND_MONTHS - 1), 1),
+  );
+  // This-month-vs-last-month window for the per-tier bars -- covers exactly
+  // the two calendar months the chart compares, so one query serves both.
+  const thisMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const thisMonthKey = monthKey(thisMonthStart);
+  const lastMonthKey = monthKey(lastMonthStart);
+
+  const [entRes, trendRes, periodRes, tiersRes] = await Promise.all([
+    // Entitlements whose current period covers today and that carry a real
+    // allowance -- unlimited/à-la-carte entitlements (null allowance) have
+    // no denominator and are excluded, same as the per-member card.
+    supabase
+      .from("benefit_entitlements")
+      .select("id, allowance_quantity")
+      .lte("period_start", today)
+      .gte("period_end", today)
+      .not("allowance_quantity", "is", null),
+    supabase
+      .from("benefit_fulfillments")
+      .select("occurred_on")
+      .gte("occurred_on", trendStart.toISOString().slice(0, 10))
+      .in("status", DELIVERED_STATUSES),
+    // Delivered fulfillments across this month and last month, joined to
+    // their entitlement's tier_code_snapshot -- the point-in-time tier the
+    // entitlement was generated under, the right key for a per-tier
+    // breakdown since a member's current tier can drift from what a past
+    // period used. Every source counts here (not just "allowance"), since
+    // this is about delivered volume, not allowance drawdown.
+    supabase
+      .from("benefit_fulfillments")
+      .select("occurred_on, benefit_entitlements!inner(tier_code_snapshot)")
+      .gte("occurred_on", lastMonthStart.toISOString().slice(0, 10))
+      .in("status", DELIVERED_STATUSES),
+    // Small, static-ish table -- just for display_name/display_order so the
+    // per-tier rows below sort and label the same way the rest of the app
+    // does, without duplicating that mapping here.
+    supabase.from("membership_tiers").select("code, display_name, display_order"),
+  ]);
+  if (entRes.error) throw entRes.error;
+  if (trendRes.error) throw trendRes.error;
+  if (periodRes.error) throw periodRes.error;
+  if (tiersRes.error) throw tiersRes.error;
+
+  const entitlements = entRes.data ?? [];
+  const entitlementIds = entitlements.map((e) => e.id as string);
+  const totalAllowance = entitlements.reduce(
+    (sum, e) => sum + (Number(e.allowance_quantity) || 0),
+    0,
+  );
+
+  let totalUsed = 0;
+  if (entitlementIds.length > 0) {
+    const { data: usage, error: usageError } = await supabase
+      .from("benefit_fulfillments")
+      .select("quantity_used, status")
+      .in("entitlement_id", entitlementIds)
+      .eq("source", "allowance");
+    if (usageError) throw usageError;
+    for (const f of usage ?? []) {
+      if (NON_CONSUMING_STATUSES.has(f.status as string)) continue;
+      totalUsed += Number(f.quantity_used) || 0;
+    }
+  }
+
+  const tierMeta = new Map(
+    (tiersRes.data ?? []).map((t) => [
+      t.code as string,
+      { label: (t.display_name as string) ?? (t.code as string), order: Number(t.display_order) || 0 },
+    ]),
+  );
+
+  const tierThisMonth = new Map<string, number>();
+  const tierLastMonth = new Map<string, number>();
+  for (const row of periodRes.data ?? []) {
+    const occurred = typeof row.occurred_on === "string" ? row.occurred_on : "";
+    const key = occurred.slice(0, 7);
+    if (key !== thisMonthKey && key !== lastMonthKey) continue;
+    const tier =
+      (row.benefit_entitlements as { tier_code_snapshot?: string } | null)?.tier_code_snapshot ?? "";
+    const target = key === thisMonthKey ? tierThisMonth : tierLastMonth;
+    target.set(tier, (target.get(tier) ?? 0) + 1);
+  }
+  // Every known tier gets a row -- not just ones with activity in either
+  // month -- so a quiet tier still renders as a zero bar instead of
+  // disappearing from the chart. Union in any stray tier codes that show up
+  // on fulfillments but aren't in membership_tiers (e.g. a legacy/blank
+  // tier_code_snapshot) so their counts aren't silently dropped.
+  const allTierCodes = new Set([...tierMeta.keys(), ...tierThisMonth.keys(), ...tierLastMonth.keys()]);
+  const byTier = [...allTierCodes]
+    .map((tier) => ({
+      tier,
+      tierLabel: tierMeta.get(tier)?.label ?? tier,
+      current: tierThisMonth.get(tier) ?? 0,
+      previous: tierLastMonth.get(tier) ?? 0,
+    }))
+    .sort((a, b) => (tierMeta.get(a.tier)?.order ?? 99) - (tierMeta.get(b.tier)?.order ?? 99));
+
+  // Trailing N months, oldest first, zero-filled so a quiet month still
+  // renders as a point on the line rather than a gap.
+  const buckets = new Map<string, number>();
+  for (let i = 0; i < BENEFITS_TREND_MONTHS; i++) {
+    const d = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (BENEFITS_TREND_MONTHS - 1 - i), 1),
+    );
+    buckets.set(monthKey(d), 0);
+  }
+  for (const row of trendRes.data ?? []) {
+    const occurred = typeof row.occurred_on === "string" ? row.occurred_on : "";
+    const key = occurred.slice(0, 7);
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+
+  return jsonResponse({
+    utilizationRate: totalAllowance > 0 ? totalUsed / totalAllowance : null,
+    totalUsed,
+    totalAllowance,
+    monthlyFulfillments: [...buckets.entries()].map(([month, count]) => ({ month, count })),
+    byTier,
+  });
+}
+
+const ACTIVITY_PAGE_MAX = 50;
+const ACTIVITY_PAGE_DEFAULT = 10;
+
+/**
+ * A staff member's own recent benefit actions, for the Dashboard's Activity
+ * feed alongside their lead events. Every `benefit_fulfillments` row is
+ * itself a discrete recorded action (there's no update endpoint -- see
+ * handleCreateFulfillment), so unlike the summary's DELIVERED_STATUSES
+ * filter, every status counts here: "declined" and "scheduled" are staff
+ * actions worth showing, not just "completed"/"redeemed".
+ */
+async function handleBenefitActivity(url: URL): Promise<Response> {
+  const owner = (url.searchParams.get("owner") ?? "").trim();
+  if (!owner) {
+    return jsonResponse({ error: "owner is required." }, 400);
+  }
+  const limit = parseIntParam(url, "limit", ACTIVITY_PAGE_DEFAULT, 1, ACTIVITY_PAGE_MAX);
+  if (limit === null) {
+    return jsonResponse({ error: "limit must be a positive integer." }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+
+  const { data: fulfillments, error: fulfillError } = await supabase
+    .from("benefit_fulfillments")
+    .select("id, entitlement_id, status, source, quantity_used, occurred_on, member_visible, created_at")
+    .eq("staff_owner_email", owner)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (fulfillError) throw fulfillError;
+
+  if (!fulfillments || fulfillments.length === 0) {
+    return jsonResponse({ activity: [] });
+  }
+
+  const entitlementIds = [...new Set(fulfillments.map((f) => f.entitlement_id as string))];
+  const { data: entitlements, error: entError } = await supabase
+    .from("benefit_entitlements")
+    .select("id, cm_id, benefit_code")
+    .in("id", entitlementIds);
+  if (entError) throw entError;
+
+  const entitlementById = new Map((entitlements ?? []).map((e) => [e.id as string, e]));
+  const cmIds = [...new Set((entitlements ?? []).map((e) => e.cm_id as number))];
+  const benefitCodes = [...new Set((entitlements ?? []).map((e) => e.benefit_code as string))];
+
+  const [{ data: members, error: memberError }, { data: catalogRows, error: catalogError }] =
+    await Promise.all([
+      cmIds.length > 0
+        ? supabase.from("chamber_members").select("cm_id, name, display_name, logo_url").in("cm_id", cmIds)
+        : Promise.resolve({ data: [], error: null }),
+      benefitCodes.length > 0
+        ? supabase.from("benefit_catalog").select("code, name").in("code", benefitCodes)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+  if (memberError) throw memberError;
+  if (catalogError) throw catalogError;
+
+  const memberByCmId = new Map((members ?? []).map((m) => [m.cm_id as number, m]));
+  const catalogByCode = new Map((catalogRows ?? []).map((c) => [c.code as string, c]));
+
+  const activity = fulfillments.map((f) => {
+    const entitlement = entitlementById.get(f.entitlement_id as string);
+    const member = entitlement ? memberByCmId.get(entitlement.cm_id as number) : undefined;
+    const catalog = entitlement ? catalogByCode.get(entitlement.benefit_code as string) : undefined;
+    return {
+      id: f.id,
+      cmId: entitlement?.cm_id ?? null,
+      companyName: (member?.display_name as string) || (member?.name as string) || null,
+      companyLogoUrl: (member?.logo_url as string) ?? null,
+      benefitCode: entitlement?.benefit_code ?? null,
+      benefitName: (catalog?.name as string) ?? entitlement?.benefit_code ?? null,
+      status: f.status,
+      source: f.source,
+      quantityUsed: f.quantity_used,
+      occurredOn: f.occurred_on,
+      memberVisible: f.member_visible,
+      createdAt: f.created_at,
+    };
+  });
+
+  return jsonResponse({ activity });
+}
+
 async function handleCreateFulfillment(
   auth: AuthContext,
   cmId: number,
@@ -617,6 +865,218 @@ async function handleCreateFulfillment(
   }, 201);
 }
 
+const STAFF_USER_PAGE_MAX = 50;
+const STAFF_USER_PAGE_DEFAULT = 25;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function mapStaffUser(
+  profile: { email: string; cmId: number | null },
+  member: Record<string, unknown> | undefined,
+) {
+  const name = (member?.display_name as string) || (member?.name as string) ||
+    profile.email.split("@")[0];
+  return {
+    email: profile.email,
+    name,
+    logoUrl: (member?.logo_url as string) ?? null,
+  };
+}
+
+/**
+ * Chamber-staff accounts searchable for the Settings "add teammate" control
+ * (#42). Staff accounts are few (a handful of admins), so this fetches
+ * every is_chamber_admin profile and filters/paginates in memory rather
+ * than fighting PostgREST's lack of cross-table OR filters -- unlike
+ * /members this never needs to scale past a few dozen rows.
+ */
+async function handleListStaffUsers(url: URL): Promise<Response> {
+  const limit = parseIntParam(url, "limit", STAFF_USER_PAGE_DEFAULT, 1, STAFF_USER_PAGE_MAX);
+  if (limit === null) return jsonResponse({ error: "limit must be a positive integer." }, 400);
+  const offset = parseIntParam(url, "offset", 0, 0, Number.MAX_SAFE_INTEGER);
+  if (offset === null) return jsonResponse({ error: "offset must be a non-negative integer." }, 400);
+  const search = (url.searchParams.get("search") ?? "").trim().toLowerCase();
+
+  const supabase = supabaseAdmin();
+  const { data: profiles, error: profileError } = await supabase
+    .from("app_profiles")
+    .select("email, cm_id")
+    .eq("is_chamber_admin", true);
+  if (profileError) throw profileError;
+
+  const cmIds = [
+    ...new Set(
+      (profiles ?? [])
+        .map((p) => p.cm_id as number | null)
+        .filter((id): id is number => id != null),
+    ),
+  ];
+  const { data: members, error: memberError } = cmIds.length > 0
+    ? await supabase.from("chamber_members").select("cm_id, name, display_name, logo_url").in(
+      "cm_id",
+      cmIds,
+    )
+    : { data: [] as Record<string, unknown>[], error: null };
+  if (memberError) throw memberError;
+  const memberByCmId = new Map((members ?? []).map((m) => [m.cm_id as number, m]));
+
+  let users = (profiles ?? []).map((p) =>
+    mapStaffUser(
+      { email: p.email as string, cmId: (p.cm_id as number | null) ?? null },
+      p.cm_id != null ? memberByCmId.get(p.cm_id as number) : undefined,
+    )
+  );
+
+  if (search) {
+    users = users.filter(
+      (u) => u.email.toLowerCase().includes(search) || u.name.toLowerCase().includes(search),
+    );
+  }
+  users.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
+
+  const total = users.length;
+  const page = users.slice(offset, offset + limit);
+
+  return jsonResponse({ staffUsers: page, total, limit, offset });
+}
+
+/**
+ * Resolves a set of emails against the staff-account roster (same lookup as
+ * /staff-users) so admin_team_members rows -- which may reference a bare
+ * email that isn't a chamber-staff account yet -- get a real name/logo when
+ * one is available.
+ */
+async function resolveStaffDisplay(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  emails: string[],
+): Promise<Map<string, { name: string; logoUrl: string | null }>> {
+  if (emails.length === 0) return new Map();
+  const { data: profiles, error: profileError } = await supabase
+    .from("app_profiles")
+    .select("email, cm_id")
+    .eq("is_chamber_admin", true)
+    .in("email", emails);
+  if (profileError) throw profileError;
+
+  const cmIds = [
+    ...new Set(
+      (profiles ?? [])
+        .map((p) => p.cm_id as number | null)
+        .filter((id): id is number => id != null),
+    ),
+  ];
+  const { data: members, error: memberError } = cmIds.length > 0
+    ? await supabase.from("chamber_members").select("cm_id, name, display_name, logo_url").in(
+      "cm_id",
+      cmIds,
+    )
+    : { data: [] as Record<string, unknown>[], error: null };
+  if (memberError) throw memberError;
+  const memberByCmId = new Map((members ?? []).map((m) => [m.cm_id as number, m]));
+
+  const resolved = new Map<string, { name: string; logoUrl: string | null }>();
+  for (const p of profiles ?? []) {
+    const member = p.cm_id != null ? memberByCmId.get(p.cm_id as number) : undefined;
+    const name = (member?.display_name as string) || (member?.name as string) ||
+      (p.email as string).split("@")[0];
+    resolved.set((p.email as string).toLowerCase(), {
+      name,
+      logoUrl: (member?.logo_url as string) ?? null,
+    });
+  }
+  return resolved;
+}
+
+function mapTeamMember(
+  row: { member_email: string; display_name: string | null },
+  staffByEmail: Map<string, { name: string; logoUrl: string | null }>,
+) {
+  const staff = staffByEmail.get(row.member_email.toLowerCase());
+  return {
+    email: row.member_email,
+    name: staff?.name ?? row.display_name ?? row.member_email.split("@")[0],
+    logoUrl: staff?.logoUrl ?? null,
+    isStaffAccount: staff !== undefined,
+  };
+}
+
+/** The admin's own curated teammate roster (#43). */
+async function handleListTeam(auth: AuthContext): Promise<Response> {
+  const supabase = supabaseAdmin();
+  const { data: rows, error } = await supabase
+    .from("admin_team_members")
+    .select("member_email, display_name")
+    .eq("admin_email", auth.email);
+  if (error) throw error;
+
+  const staffByEmail = await resolveStaffDisplay(
+    supabase,
+    (rows ?? []).map((r) => r.member_email as string),
+  );
+  const team = (rows ?? [])
+    .map((r) =>
+      mapTeamMember(
+        { member_email: r.member_email as string, display_name: r.display_name as string | null },
+        staffByEmail,
+      )
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return jsonResponse({ team });
+}
+
+/** Add a teammate to the caller's roster. 409s on a duplicate (#43). */
+async function handleAddTeamMember(auth: AuthContext, req: Request): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body." }, 400);
+  }
+
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!EMAIL_RE.test(email)) {
+    return jsonResponse({ error: "A valid email is required." }, 400);
+  }
+  const displayName = typeof body.displayName === "string" && body.displayName.trim()
+    ? body.displayName.trim()
+    : null;
+
+  const supabase = supabaseAdmin();
+  const { data: inserted, error } = await supabase
+    .from("admin_team_members")
+    .insert({ admin_email: auth.email, member_email: email, display_name: displayName })
+    .select("member_email, display_name")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      return jsonResponse({ error: "Already on your team." }, 409);
+    }
+    throw error;
+  }
+
+  const staffByEmail = await resolveStaffDisplay(supabase, [email]);
+  const member = mapTeamMember(
+    {
+      member_email: inserted.member_email as string,
+      display_name: inserted.display_name as string | null,
+    },
+    staffByEmail,
+  );
+  return jsonResponse({ member }, 201);
+}
+
+/** Remove a teammate from the caller's roster. Idempotent. */
+async function handleRemoveTeamMember(auth: AuthContext, email: string): Promise<Response> {
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("admin_team_members")
+    .delete()
+    .eq("admin_email", auth.email)
+    .eq("member_email", email.trim().toLowerCase());
+  if (error) throw error;
+  return jsonResponse({ ok: true });
+}
+
 async function handleRequest(req: Request): Promise<Response> {
   try {
     const url = new URL(req.url);
@@ -625,10 +1085,27 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // GET /members?search=&tier=&status=&sort=&order=&limit=&offset=
     if (req.method === "GET" && parts.length === 1 && parts[0] === "members") {
+      requireStaffAccess(auth);
       return await handleListMembers(url);
     }
 
-    // GET /members/:cmId
+    // GET /benefits/summary -- org-wide utilization rate + monthly trend for the Dashboard.
+    if (req.method === "GET" && parts.length === 2 && parts[0] === "benefits" && parts[1] === "summary") {
+      requireStaffAccess(auth);
+      return await handleBenefitsSummary();
+    }
+
+    // GET /activity/benefits?owner=&limit= -- a staff member's own recent
+    // benefit actions, for the Dashboard's Activity feed.
+    if (
+      req.method === "GET" && parts.length === 2 && parts[0] === "activity" && parts[1] === "benefits"
+    ) {
+      requireStaffAccess(auth);
+      return await handleBenefitActivity(url);
+    }
+
+    // GET /members/:cmId -- staff can read any member; a business member may
+    // read their own record (the web app's "My business" page).
     if (
       req.method === "GET" && parts.length === 2 && parts[0] === "members"
     ) {
@@ -636,10 +1113,11 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!Number.isInteger(cmId)) {
         return jsonResponse({ error: "Invalid member id." }, 400);
       }
+      requireMemberAccess(auth, cmId);
       return await handleGetMember(cmId);
     }
 
-    // GET /members/:cmId/benefits
+    // GET /members/:cmId/benefits -- same access as above.
     if (
       req.method === "GET" &&
       parts.length === 3 &&
@@ -650,10 +1128,12 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!Number.isInteger(cmId)) {
         return jsonResponse({ error: "Invalid member id." }, 400);
       }
+      requireMemberAccess(auth, cmId);
       return await handleGetMemberBenefits(cmId);
     }
 
-    // POST /members/:cmId/benefits/:entitlementId/fulfillment
+    // POST /members/:cmId/benefits/:entitlementId/fulfillment -- recording
+    // activity stays staff-only.
     if (
       req.method === "POST" &&
       parts.length === 5 &&
@@ -661,11 +1141,37 @@ async function handleRequest(req: Request): Promise<Response> {
       parts[2] === "benefits" &&
       parts[4] === "fulfillment"
     ) {
+      requireStaffAccess(auth);
       const cmId = Number(parts[1]);
       if (!Number.isInteger(cmId)) {
         return jsonResponse({ error: "Invalid member id." }, 400);
       }
       return await handleCreateFulfillment(auth, cmId, parts[3], req);
+    }
+
+    // GET /staff-users?search=&limit=&offset= -- chamber-staff accounts
+    // searchable for the Settings "add teammate" control (#42).
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "staff-users") {
+      requireStaffAccess(auth);
+      return await handleListStaffUsers(url);
+    }
+
+    // GET /team -- the admin's own curated teammate roster (#43).
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "team") {
+      requireStaffAccess(auth);
+      return await handleListTeam(auth);
+    }
+
+    // POST /team { email, displayName? } -- add a teammate to the roster.
+    if (req.method === "POST" && parts.length === 1 && parts[0] === "team") {
+      requireStaffAccess(auth);
+      return await handleAddTeamMember(auth, req);
+    }
+
+    // DELETE /team/:email -- remove a teammate from the roster.
+    if (req.method === "DELETE" && parts.length === 2 && parts[0] === "team") {
+      requireStaffAccess(auth);
+      return await handleRemoveTeamMember(auth, decodeURIComponent(parts[1]));
     }
 
     return jsonResponse({ error: "Not found." }, 404);
