@@ -705,7 +705,7 @@ async function handleBenefitActivity(url: URL): Promise<Response> {
 
   const { data: fulfillments, error: fulfillError } = await supabase
     .from("benefit_fulfillments")
-    .select("id, entitlement_id, status, source, quantity_used, occurred_on, member_visible, created_at")
+    .select("id, entitlement_id, status, source, quantity_used, occurred_on, member_visible, created_at, staff_owner_email")
     .eq("staff_owner_email", owner)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -758,6 +758,7 @@ async function handleBenefitActivity(url: URL): Promise<Response> {
       occurredOn: f.occurred_on,
       memberVisible: f.member_visible,
       createdAt: f.created_at,
+      actorEmail: (f.staff_owner_email as string) ?? null,
     };
   });
 
