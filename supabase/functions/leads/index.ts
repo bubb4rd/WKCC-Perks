@@ -276,6 +276,20 @@ function mapActivity(row: LeadRow) {
   };
 }
 
+/** Backend stores status_change bodies as raw `"{from} → {to}"` slugs (see `handlePatch`) -- parse them back into typed statuses for the cross-lead activity feed. */
+function parseStatusChangeBody(
+  body: string | null,
+): { from: string | null; to: string | null } | null {
+  if (!body) return null;
+  const parts = body.split("→").map((s) => s.trim());
+  if (parts.length !== 2) return null;
+  const [from, to] = parts;
+  return {
+    from: STATUS_SET.has(from) ? from : null,
+    to: STATUS_SET.has(to) ? to : null,
+  };
+}
+
 function escapeIlike(value: string): string {
   return value.replace(/[%_,]/g, " ").trim();
 }
@@ -447,6 +461,63 @@ async function handleSummary(): Promise<Response> {
     wonThisMonth: wonRes.count ?? 0,
     overdueFollowUps: overdueRes.count ?? 0,
   });
+}
+
+/**
+ * A staff member's own recent lead pipeline status changes across every
+ * lead they own, for the Dashboard's Activity feed alongside their benefit
+ * actions. Two queries rather than a PostgREST embed (matches this repo's
+ * existing manual-join style, e.g. `staff`'s handleBenefitActivity): first
+ * the owned lead ids + display fields, then the status_change rows for
+ * those ids.
+ */
+async function handleActivity(url: URL): Promise<Response> {
+  const ownerRaw = (url.searchParams.get("owner") ?? "").trim().toLowerCase();
+  const owner = ownerRaw === "" || ownerRaw === "all" ? null : ownerRaw;
+  const limit = parseIntParam(url, "limit", 10, 1, LEAD_PAGE_MAX);
+  if (limit === null) {
+    return jsonResponse({ error: "limit must be a positive integer." }, 400);
+  }
+
+  const supabase = supabaseAdmin();
+
+  let leadQuery = supabase.from("leads").select("id, company_name, contact_name");
+  if (owner === "unassigned") leadQuery = leadQuery.is("owner_email", null);
+  else if (owner) leadQuery = leadQuery.eq("owner_email", owner);
+  const { data: leadRows, error: leadError } = await leadQuery;
+  if (leadError) throw leadError;
+
+  if (!leadRows || leadRows.length === 0) {
+    return jsonResponse({ activity: [] });
+  }
+
+  const leadById = new Map((leadRows as LeadRow[]).map((row) => [row.id as string, row]));
+
+  const { data: activityRows, error: activityError } = await supabase
+    .from("lead_activities")
+    .select("id, lead_id, body, actor_email, occurred_at")
+    .eq("kind", "status_change")
+    .in("lead_id", [...leadById.keys()])
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+  if (activityError) throw activityError;
+
+  const activity = (activityRows ?? []).map((row) => {
+    const lead = leadById.get(row.lead_id as string);
+    const parsed = parseStatusChangeBody(row.body as string | null);
+    return {
+      id: row.id,
+      leadId: row.lead_id,
+      companyName: (lead?.company_name as string) ?? null,
+      contactName: (lead?.contact_name as string) ?? null,
+      fromStatus: parsed?.from ?? null,
+      toStatus: parsed?.to ?? null,
+      actorEmail: (row.actor_email as string) ?? null,
+      occurredAt: row.occurred_at,
+    };
+  });
+
+  return jsonResponse({ activity });
 }
 
 async function handleGet(id: string): Promise<Response> {
@@ -744,6 +815,18 @@ async function handleRequest(req: Request): Promise<Response> {
       parts[1] === "summary"
     ) {
       return await handleSummary();
+    }
+
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "activity") {
+      return await handleActivity(url);
+    }
+    if (
+      req.method === "GET" &&
+      parts.length === 2 &&
+      parts[0] === "leads" &&
+      parts[1] === "activity"
+    ) {
+      return await handleActivity(url);
     }
 
     if (
