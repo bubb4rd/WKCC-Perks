@@ -43,6 +43,10 @@ final class BusinessesListViewModel {
         isLoading = false
     }
 
+    func toggleCategory(_ category: DealCategory) {
+        selectedCategory = selectedCategory == category ? nil : category
+    }
+
     func dismissError() {
         errorMessage = nil
     }

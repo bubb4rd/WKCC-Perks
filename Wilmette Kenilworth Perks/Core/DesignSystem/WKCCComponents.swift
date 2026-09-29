@@ -634,6 +634,7 @@ struct CategoryChip: View {
                     .stroke(WKCCColors.primary.opacity(isSelected ? 0 : 0.15), lineWidth: 1)
             )
         }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
