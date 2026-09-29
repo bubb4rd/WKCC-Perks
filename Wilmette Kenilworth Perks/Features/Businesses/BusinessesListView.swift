@@ -36,22 +36,25 @@ struct BusinessesListView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.isLoading && viewModel.businesses.isEmpty {
-                LoadingView(message: "Loading businesses...")
-            } else if viewModel.filteredBusinesses.isEmpty {
-                EmptyStateView(
-                    icon: "building.2",
-                    title: "No Businesses Found",
-                    message: "Try adjusting your search or category filter."
-                )
-            } else {
-                businessList
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) {
             categoryBar
+
+            Group {
+                if viewModel.isLoading && viewModel.businesses.isEmpty {
+                    LoadingView(message: "Loading businesses...")
+                } else if viewModel.filteredBusinesses.isEmpty {
+                    EmptyStateView(
+                        icon: "building.2",
+                        title: "No Businesses Found",
+                        message: "Try adjusting your search or category filter."
+                    )
+                } else {
+                    businessList
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .wkccPageBackground()
         .navigationTitle("Businesses")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
