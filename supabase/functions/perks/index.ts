@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { normalizeCategory } from "../_shared/categories.ts";
 import {
   emitPush,
   notifyAdminsOfSubmission,
@@ -23,19 +24,6 @@ type AuthContext = {
 };
 
 const ACTIVE_MEMBER_STATUS = "2";
-
-const ALLOWED_CATEGORIES = new Set([
-  "Shopping and Specialty Retail",
-  "Health Care",
-  "Home and Garden",
-  "Restaurants, Food and Beverages",
-  "Government, Education and Individuals",
-  "Personal Services and Care",
-  "Business and Professional Services",
-  "Finance and Insurance",
-  "Advertising and Media",
-  "Other",
-]);
 
 const ALLOWED_REDEMPTION_TYPES = new Set([
   "No code needed",
@@ -172,8 +160,8 @@ function validateSubmissionFields(
   const title = clipText(submission.title, MAX_TITLE);
   if (!title) return { ok: false, error: "Title is required." };
 
-  const category = clipText(submission.category, 80) || "Other";
-  if (!ALLOWED_CATEGORIES.has(category)) {
+  const category = normalizeCategory(clipText(submission.category, 80) || "Other");
+  if (!category) {
     return { ok: false, error: "Invalid category." };
   }
 
@@ -411,7 +399,7 @@ function dealInsertFromSubmission(input: {
     terms: String(s.terms ?? "").trim() || null,
     redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
     redemption_code: String(s.redemptionCode ?? "").trim() || null,
-    category: String(s.category ?? "Other"),
+    category: normalizeCategory(s.category) ?? "Other",
     start_date: s.startDate ?? null,
     end_date: s.endDate ?? null,
     image_url: null,
@@ -419,6 +407,33 @@ function dealInsertFromSubmission(input: {
     is_featured: input.isFeatured ?? false,
     source_submission_id: input.sourceSubmissionId ?? null,
     created_by: input.createdBy ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// Update-only counterpart to dealInsertFromSubmission (#6): an admin edit
+// touches content fields only. image_url, members_only, is_featured,
+// source_submission_id and created_by are never in this payload, so
+// Supabase's .update() leaves them at their existing values instead of the
+// insert builder's hard-coded null/true/editor-as-creator.
+function dealUpdateFromSubmission(input: {
+  submission: Record<string, unknown>;
+  businessId: string;
+  businessName: string;
+}) {
+  const s = input.submission;
+  return {
+    title: String(s.title ?? "").trim(),
+    business_id: input.businessId,
+    business_name: input.businessName,
+    short_description: String(s.shortDescription ?? "").trim(),
+    description: String(s.fullDescription ?? "").trim(),
+    terms: String(s.terms ?? "").trim() || null,
+    redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
+    redemption_code: String(s.redemptionCode ?? "").trim() || null,
+    category: normalizeCategory(s.category) ?? "Other",
+    start_date: s.startDate ?? null,
+    end_date: s.endDate ?? null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -946,18 +961,16 @@ async function handleAdminUpdateDeal(
   const supabase = supabaseAdmin();
   const { data: existing, error: fetchError } = await supabase
     .from("deals")
-    .select("is_featured")
+    .select("id")
     .eq("id", id)
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!existing) return jsonResponse({ error: "Deal not found." }, 404);
 
-  const row = dealInsertFromSubmission({
+  const row = dealUpdateFromSubmission({
     submission: body.submission,
     businessId: body.businessId,
     businessName: body.businessName,
-    createdBy: auth.memberId,
-    isFeatured: Boolean(existing.is_featured),
   });
 
   const { data, error } = await supabase
