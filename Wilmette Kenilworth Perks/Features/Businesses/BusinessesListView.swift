@@ -37,6 +37,7 @@ struct BusinessesListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            headerBar
             categoryBar
 
             Group {
@@ -55,40 +56,12 @@ struct BusinessesListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .wkccPageBackground()
+        // Title stays set so pushed screens get a "Businesses" back button; the bar itself is hidden.
         .navigationTitle("Businesses")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Menu {
-                    Picker("Layout", selection: $layout) {
-                        ForEach(BusinessesListLayout.allCases) { option in
-                            Label(option.title, systemImage: option.iconName)
-                                .tag(option)
-                        }
-                    }
-                } label: {
-                    Image(systemName: layout.iconName)
-                }
-                .accessibilityLabel("Layout")
-                .accessibilityValue(layout.title)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isFilterSheetPresented = true
-                } label: {
-                    Image(systemName: hasActiveFilters
-                          ? "line.3.horizontal.decrease.circle.fill"
-                          : "line.3.horizontal.decrease.circle")
-                }
-                .accessibilityLabel("Filters")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $isFilterSheetPresented) {
             ListFilterSheet(selectedCategory: $viewModel.selectedCategory)
         }
-        .searchable(text: $viewModel.searchText, prompt: "Search businesses")
         .refreshable {
             await viewModel.load()
         }
@@ -101,6 +74,72 @@ struct BusinessesListView: View {
         .navigationDestination(for: ChamberBusiness.self) { business in
             BusinessDetailView(businessId: business.id)
         }
+    }
+
+    private var headerBar: some View {
+        HStack(spacing: WKCCSpacing.xs) {
+            searchField
+
+            Menu {
+                Picker("Layout", selection: $layout) {
+                    ForEach(BusinessesListLayout.allCases) { option in
+                        Label(option.title, systemImage: option.iconName)
+                            .tag(option)
+                    }
+                }
+            } label: {
+                headerIcon(layout.iconName)
+            }
+            .accessibilityLabel("Layout")
+            .accessibilityValue(layout.title)
+
+            Button {
+                isFilterSheetPresented = true
+            } label: {
+                headerIcon("line.3.horizontal.decrease", isActive: hasActiveFilters)
+            }
+            .accessibilityLabel("Filters")
+        }
+        .padding(.horizontal, WKCCSpacing.md)
+        .padding(.top, WKCCSpacing.xs)
+        .padding(.bottom, WKCCSpacing.xs)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: WKCCSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(WKCCColors.textSecondary)
+
+            TextField("Search businesses", text: $viewModel.searchText)
+                .foregroundStyle(WKCCColors.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+
+            if !viewModel.searchText.isEmpty {
+                Button {
+                    viewModel.searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(WKCCColors.textSecondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(WKCCTypography.body)
+        .padding(.horizontal, WKCCSpacing.sm)
+        .frame(height: 44)
+        .background(WKCCColors.cardBackground, in: Capsule())
+        .wkccCardShadow()
+    }
+
+    private func headerIcon(_ systemName: String, isActive: Bool = false) -> some View {
+        Image(systemName: systemName)
+            .font(.title3)
+            .foregroundStyle(isActive ? WKCCColors.textOnPrimary : WKCCColors.primary)
+            .frame(width: 44, height: 44)
+            .background(isActive ? WKCCColors.primary : WKCCColors.cardBackground, in: Circle())
+            .wkccCardShadow()
     }
 
     private var categoryBar: some View {
@@ -157,6 +196,7 @@ struct BusinessesListView: View {
             }
             .padding(WKCCSpacing.md)
         }
+        .scrollDismissesKeyboard(.immediately)
         .wkccPageBackground()
     }
 }
