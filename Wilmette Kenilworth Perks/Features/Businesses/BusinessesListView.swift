@@ -63,7 +63,9 @@ struct BusinessesListView: View {
             ListFilterSheet(selectedCategory: $viewModel.selectedCategory)
         }
         .refreshable {
-            await viewModel.load()
+            // SwiftUI cancels the refresh task if the view updates mid-pull; run the
+            // load in its own task so the request finishes and the spinner still waits on it.
+            await Task { await viewModel.load() }.value
         }
         .task {
             await viewModel.load()
