@@ -54,6 +54,12 @@ struct BusinessesListView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Scoped to the list so the horizontal chip ScrollView doesn't pick up pull-to-refresh.
+            .refreshable {
+                // SwiftUI cancels the refresh task if the view updates mid-pull; run the
+                // load in its own task so the request finishes and the spinner still waits on it.
+                await Task { await viewModel.load() }.value
+            }
         }
         .wkccPageBackground()
         // Title stays set so pushed screens get a "Businesses" back button; the bar itself is hidden.
@@ -61,11 +67,6 @@ struct BusinessesListView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $isFilterSheetPresented) {
             ListFilterSheet(selectedCategory: $viewModel.selectedCategory)
-        }
-        .refreshable {
-            // SwiftUI cancels the refresh task if the view updates mid-pull; run the
-            // load in its own task so the request finishes and the spinner still waits on it.
-            await Task { await viewModel.load() }.value
         }
         .task {
             await viewModel.load()
