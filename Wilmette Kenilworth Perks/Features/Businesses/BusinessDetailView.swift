@@ -278,17 +278,6 @@ private struct BusinessDetailHeroImage: View {
             .overlay {
                 heroImage
             }
-            .overlay {
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        Color.black.opacity(0.18),
-                        Color.black.opacity(0.42)
-                    ],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
-            }
             .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
