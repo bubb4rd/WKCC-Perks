@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { normalizeCategory } from "../_shared/categories.ts";
 import {
   emitPush,
   notifyAdminsOfSubmission,
@@ -23,19 +24,6 @@ type AuthContext = {
 };
 
 const ACTIVE_MEMBER_STATUS = "2";
-
-const ALLOWED_CATEGORIES = new Set([
-  "Shopping and Specialty Retail",
-  "Health Care",
-  "Home and Garden",
-  "Restaurants, Food and Beverages",
-  "Government, Education and Individuals",
-  "Personal Services and Care",
-  "Business and Professional Services",
-  "Finance and Insurance",
-  "Advertising and Media",
-  "Other",
-]);
 
 const ALLOWED_REDEMPTION_TYPES = new Set([
   "No code needed",
@@ -172,8 +160,8 @@ function validateSubmissionFields(
   const title = clipText(submission.title, MAX_TITLE);
   if (!title) return { ok: false, error: "Title is required." };
 
-  const category = clipText(submission.category, 80) || "Other";
-  if (!ALLOWED_CATEGORIES.has(category)) {
+  const category = normalizeCategory(clipText(submission.category, 80) || "Other");
+  if (!category) {
     return { ok: false, error: "Invalid category." };
   }
 
@@ -411,7 +399,7 @@ function dealInsertFromSubmission(input: {
     terms: String(s.terms ?? "").trim() || null,
     redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
     redemption_code: String(s.redemptionCode ?? "").trim() || null,
-    category: String(s.category ?? "Other"),
+    category: normalizeCategory(s.category) ?? "Other",
     start_date: s.startDate ?? null,
     end_date: s.endDate ?? null,
     image_url: null,
@@ -443,7 +431,7 @@ function dealUpdateFromSubmission(input: {
     terms: String(s.terms ?? "").trim() || null,
     redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
     redemption_code: String(s.redemptionCode ?? "").trim() || null,
-    category: String(s.category ?? "Other"),
+    category: normalizeCategory(s.category) ?? "Other",
     start_date: s.startDate ?? null,
     end_date: s.endDate ?? null,
     updated_at: new Date().toISOString(),
