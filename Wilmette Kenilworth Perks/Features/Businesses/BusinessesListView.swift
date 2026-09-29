@@ -49,6 +49,9 @@ struct BusinessesListView: View {
                 businessList
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            categoryBar
+        }
         .navigationTitle("Businesses")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
@@ -95,6 +98,28 @@ struct BusinessesListView: View {
         .navigationDestination(for: ChamberBusiness.self) { business in
             BusinessDetailView(businessId: business.id)
         }
+    }
+
+    private var categoryBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: WKCCSpacing.xs) {
+                ForEach(DealCategory.allCases) { category in
+                    CategoryChip(
+                        category: category,
+                        isSelected: viewModel.selectedCategory == category
+                    ) {
+                        withAnimation(.snappy) {
+                            viewModel.toggleCategory(category)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, WKCCSpacing.md)
+            .padding(.vertical, WKCCSpacing.xs)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(WKCCColors.pageBackground)
     }
 
     private var businessList: some View {
