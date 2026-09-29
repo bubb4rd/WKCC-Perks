@@ -287,6 +287,77 @@ struct BusinessCard: View {
     }
 }
 
+/// Square-ish card for the two-column businesses grid.
+struct BusinessGridCard: View {
+    let business: ChamberBusiness
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.xs) {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { logo }
+                .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md, style: .continuous))
+
+            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                Text(business.name)
+                    .font(WKCCTypography.headline)
+                    .foregroundStyle(WKCCColors.textPrimary)
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+
+                Text(business.category.rawValue)
+                    .font(WKCCTypography.caption)
+                    .foregroundStyle(WKCCColors.accent)
+                    .lineLimit(1)
+
+                Text(business.activeDealCount > 0
+                     ? "\(business.activeDealCount) active perk\(business.activeDealCount == 1 ? "" : "s")"
+                     : " ")
+                    .font(WKCCTypography.captionBold)
+                    .foregroundStyle(WKCCColors.primary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(WKCCSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .wkccCardStyle()
+    }
+
+    // Logos are often wide wordmarks, so fit rather than fill to avoid cropping.
+    @ViewBuilder
+    private var logo: some View {
+        if let url = business.logoURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .padding(WKCCSpacing.xs)
+                case .empty:
+                    Color(white: 0.9)
+                default:
+                    logoPlaceholder
+                }
+            }
+        } else {
+            logoPlaceholder
+        }
+    }
+
+    private var logoPlaceholder: some View {
+        ZStack {
+            WKCCColors.accent.opacity(0.15)
+
+            Image("WKCCLogo")
+                .resizable()
+                .scaledToFit()
+                .padding(WKCCSpacing.lg)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 enum BadgeSurface {
     case light
     case dark
