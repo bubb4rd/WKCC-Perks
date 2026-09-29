@@ -423,6 +423,33 @@ function dealInsertFromSubmission(input: {
   };
 }
 
+// Update-only counterpart to dealInsertFromSubmission (#6): an admin edit
+// touches content fields only. image_url, members_only, is_featured,
+// source_submission_id and created_by are never in this payload, so
+// Supabase's .update() leaves them at their existing values instead of the
+// insert builder's hard-coded null/true/editor-as-creator.
+function dealUpdateFromSubmission(input: {
+  submission: Record<string, unknown>;
+  businessId: string;
+  businessName: string;
+}) {
+  const s = input.submission;
+  return {
+    title: String(s.title ?? "").trim(),
+    business_id: input.businessId,
+    business_name: input.businessName,
+    short_description: String(s.shortDescription ?? "").trim(),
+    description: String(s.fullDescription ?? "").trim(),
+    terms: String(s.terms ?? "").trim() || null,
+    redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
+    redemption_code: String(s.redemptionCode ?? "").trim() || null,
+    category: String(s.category ?? "Other"),
+    start_date: s.startDate ?? null,
+    end_date: s.endDate ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function pathParts(pathname: string): string[] {
   // pathname like /perks/deals/abc or /functions/v1/perks/deals
   const cleaned = pathname.replace(/\/+$/, "");
@@ -946,18 +973,16 @@ async function handleAdminUpdateDeal(
   const supabase = supabaseAdmin();
   const { data: existing, error: fetchError } = await supabase
     .from("deals")
-    .select("is_featured")
+    .select("id")
     .eq("id", id)
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!existing) return jsonResponse({ error: "Deal not found." }, 404);
 
-  const row = dealInsertFromSubmission({
+  const row = dealUpdateFromSubmission({
     submission: body.submission,
     businessId: body.businessId,
     businessName: body.businessName,
-    createdBy: auth.memberId,
-    isFeatured: Boolean(existing.is_featured),
   });
 
   const { data, error } = await supabase
