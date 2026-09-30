@@ -184,15 +184,12 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, WKCCSpacing.lg)
                 } else {
-                    LazyVStack(spacing: WKCCSpacing.sm) {
+                    LazyVStack(spacing: WKCCSpacing.lg) {
                         ForEach(deals) { deal in
-                            NavigationLink(value: deal) {
-                                PerkRow(
-                                    deal: deal,
-                                    logoURL: viewModel.logoURL(forBusinessId: deal.businessId)
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            DealCard(
+                                deal: deal,
+                                businessLogoURL: viewModel.logoURL(forBusinessId: deal.businessId)
+                            )
                         }
                     }
                 }
@@ -330,6 +327,8 @@ private struct HotDealsSpotlight: View {
 
     @State private var selection = 0
 
+    private let pageGap = WKCCSpacing.md
+
     private var showsPageDots: Bool { deals.count > 1 }
 
     var body: some View {
@@ -341,11 +340,15 @@ private struct HotDealsSpotlight: View {
                     HotDealCard(deal: deal, imageURL: logoURL(deal), showsPageDots: showsPageDots)
                 }
                 .buttonStyle(.plain)
+                // TabView pages sit flush; half the gap on each side of a page opens it between cards.
+                .padding(.horizontal, pageGap / 2)
                 .tag(index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: showsPageDots ? .automatic : .never))
         .frame(height: 260)
+        // Cancels the outer half-gaps so a resting card still spans the content width.
+        .padding(.horizontal, -pageGap / 2)
         .onChange(of: deals.count) { _, count in
             selection = min(selection, max(count - 1, 0))
         }
@@ -419,8 +422,8 @@ private struct HotDealCard: View {
 
     private var badge: some View {
         HStack(spacing: WKCCSpacing.xxs) {
-            Image(systemName: "flame.fill")
-                .font(.caption)
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
                 .foregroundStyle(WKCCColors.accent)
             Text("Hot deal")
                 .font(WKCCTypography.captionBold)
@@ -549,63 +552,7 @@ private struct SpotlightCard: View {
     }
 }
 
-/// Compact perk row: logo thumbnail, title, business, and category / expiry meta line.
-private struct PerkRow: View {
-    let deal: DealSummary
-    let logoURL: URL?
-
-    var body: some View {
-        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
-            BusinessLogoView(
-                url: logoURL,
-                size: 64,
-                shape: .roundedRect(cornerRadius: WKCCRadius.md)
-            )
-
-            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
-                Text(deal.title)
-                    .font(WKCCTypography.headline)
-                    .foregroundStyle(WKCCColors.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-
-                Text(deal.businessName)
-                    .font(WKCCTypography.callout)
-                    .foregroundStyle(WKCCColors.textSecondary)
-                    .lineLimit(1)
-
-                metaLine
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(WKCCColors.textSecondary)
-        }
-        .padding(WKCCSpacing.sm)
-        .wkccCardStyle()
-        .accessibilityElement(children: .combine)
-    }
-
-    private var metaLine: some View {
-        HStack(spacing: WKCCSpacing.xxs) {
-            Image(systemName: deal.category.iconName)
-            Text(deal.category.rawValue)
-                .lineLimit(1)
-
-            if let expiration = deal.expirationDate {
-                Text("·")
-                Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day()))")
-                    .foregroundStyle(deal.isExpiringSoon ? WKCCColors.warning : WKCCColors.textSecondary)
-                    .fixedSize()
-            }
-        }
-        .font(WKCCTypography.caption)
-        .foregroundStyle(WKCCColors.accent)
-    }
-}
-
-/// Quiet placeholder in the shape of a `PerkRow`, shown when the spotlight is the only perk.
+/// Quiet placeholder in the shape of a perk card, shown when the spotlight is the only perk.
 /// Deliberately low-contrast (no fill, dashed outline) so it doesn't compete with the spotlight.
 private struct EmptyPerkSlot: View {
     private let shape = RoundedRectangle(cornerRadius: WKCCRadius.lg)
