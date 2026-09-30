@@ -638,6 +638,39 @@ struct CategoryChip: View {
     }
 }
 
+struct WKCCSearchField: View {
+    let prompt: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: WKCCSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(WKCCColors.textSecondary)
+
+            TextField(prompt, text: $text)
+                .foregroundStyle(WKCCColors.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(WKCCColors.textSecondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(WKCCTypography.body)
+        .padding(.horizontal, WKCCSpacing.sm)
+        .frame(height: 44)
+        .background(WKCCColors.cardBackground, in: Capsule())
+        .wkccCardShadow()
+    }
+}
+
 struct SectionHeader: View {
     let title: String
     var actionTitle: String? = nil
