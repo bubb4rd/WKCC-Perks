@@ -240,6 +240,7 @@ private struct DealSummaryDTO: Decodable {
     let expirationDate: Date?
     let isFeatured: Bool
     let membersOnly: Bool
+    let requiresCode: Bool?
 
     func toModel() -> DealSummary {
         DealSummary(
@@ -251,7 +252,8 @@ private struct DealSummaryDTO: Decodable {
             category: DealCategory(rawValue: category) ?? .other,
             expirationDate: expirationDate,
             isFeatured: isFeatured,
-            membersOnly: membersOnly
+            membersOnly: membersOnly,
+            requiresCode: requiresCode ?? true
         )
     }
 }

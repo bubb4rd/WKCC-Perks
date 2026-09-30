@@ -329,6 +329,7 @@ function mapDealSummary(row: Record<string, unknown>) {
     isFeatured: Boolean(row.is_featured),
     membersOnly: Boolean(row.members_only),
     archivedAt: row.archived_at ?? null,
+    requiresCode: row.redemption_code_type !== "No code needed",
   };
 }
 

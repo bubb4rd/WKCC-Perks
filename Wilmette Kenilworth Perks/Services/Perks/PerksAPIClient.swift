@@ -185,6 +185,8 @@ struct PerksDealSummaryDTO: Decodable {
     let isFeatured: Bool
     let membersOnly: Bool
     let archivedAt: Date?
+    /// Absent until the server ships the field; treated as requiring a code.
+    let requiresCode: Bool?
 
     func toModel() -> DealSummary {
         DealSummary(
@@ -197,7 +199,8 @@ struct PerksDealSummaryDTO: Decodable {
             expirationDate: expirationDate,
             isFeatured: isFeatured,
             membersOnly: membersOnly,
-            archivedAt: archivedAt
+            archivedAt: archivedAt,
+            requiresCode: requiresCode ?? true
         )
     }
 }

@@ -300,6 +300,7 @@ function mapDealSummary(row: Record<string, unknown>) {
     expirationDate: row.end_date ?? null,
     isFeatured: Boolean(row.is_featured),
     membersOnly: Boolean(row.members_only),
+    requiresCode: row.redemption_code_type !== "No code needed",
   };
 }
 
@@ -1122,7 +1123,7 @@ async function handleBusinesses(req: Request): Promise<Response> {
     const { data: deals, error: dealsError } = await supabase
       .from("deals")
       .select(
-        "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at",
+        "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at, redemption_code_type",
       )
       .is("archived_at", null)
       .in("business_id", businessIds);
@@ -1173,7 +1174,7 @@ async function handleBusiness(req: Request, businessId: string): Promise<Respons
   const { data: deals, error: dealsError } = await supabase
     .from("deals")
     .select(
-      "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at",
+      "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at, redemption_code_type",
     )
     .is("archived_at", null)
     .eq("business_id", String(cmId));
