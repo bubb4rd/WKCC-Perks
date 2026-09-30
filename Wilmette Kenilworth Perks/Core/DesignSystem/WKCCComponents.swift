@@ -110,6 +110,7 @@ struct DealCard: View {
     let deal: DealSummary
     var businessLogoURL: URL? = nil
     /// Set when the card stands for a Chambermate hot deal: View only, nothing to redeem.
+    /// Deals that need no code also show View only.
     var hotDeal: HotDeal? = nil
 
     private let logoSize: CGFloat = 92
@@ -172,7 +173,7 @@ struct DealCard: View {
             HStack(spacing: WKCCSpacing.xs) {
                 viewLink
 
-                if hotDeal == nil {
+                if hotDeal == nil, deal.requiresCode {
                     Button {
                         Task { await openRedemption() }
                     } label: {

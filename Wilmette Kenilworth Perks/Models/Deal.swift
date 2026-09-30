@@ -11,6 +11,8 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
     let isFeatured: Bool
     let membersOnly: Bool
     let archivedAt: Date?
+    /// False when the promotion's code type is "No code needed": nothing to redeem.
+    let requiresCode: Bool
 
     var isArchived: Bool { archivedAt != nil }
 
@@ -35,7 +37,8 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
         expirationDate: Date?,
         isFeatured: Bool,
         membersOnly: Bool,
-        archivedAt: Date? = nil
+        archivedAt: Date? = nil,
+        requiresCode: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -47,6 +50,7 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
         self.isFeatured = isFeatured
         self.membersOnly = membersOnly
         self.archivedAt = archivedAt
+        self.requiresCode = requiresCode
     }
 }
 

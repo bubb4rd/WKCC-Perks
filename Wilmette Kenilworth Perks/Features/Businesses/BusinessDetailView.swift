@@ -4,11 +4,13 @@ struct BusinessDetailView: View {
     let businessId: String
 
     @State private var business: ChamberBusiness?
+    @State private var hotDeals: [HotDeal] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isAboutExpanded = false
 
     private let businessService: any BusinessServicing = AppDependencies.shared.businessService
+    private let dealsService: any DealsServicing = AppDependencies.shared.dealsService
 
     var body: some View {
         Group {
@@ -54,6 +56,10 @@ struct BusinessDetailView: View {
             errorMessage = error.localizedDescription
         }
 
+        // Supplementary: a hot deals failure must not hide the business.
+        let allHotDeals = (try? await dealsService.fetchHotDeals()) ?? []
+        hotDeals = allHotDeals.filter { $0.businessId == businessId && !$0.isExpired }
+
         isLoading = false
     }
 
@@ -73,7 +79,7 @@ struct BusinessDetailView: View {
                     aboutSection(about)
                 }
 
-                dealsSection(activeDeals, logoURL: business.logoURL)
+                dealsSection(activeDeals, hotDeals: hotDeals, logoURL: business.logoURL)
             }
             .padding(.horizontal, WKCCSpacing.md)
             .padding(.top, WKCCSpacing.lg)
@@ -180,13 +186,13 @@ struct BusinessDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func dealsSection(_ deals: [DealSummary], logoURL: URL?) -> some View {
+    private func dealsSection(_ deals: [DealSummary], hotDeals: [HotDeal], logoURL: URL?) -> some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
             Text("Current Perks")
                 .font(WKCCTypography.headline)
                 .foregroundStyle(WKCCColors.textPrimary)
 
-            if deals.isEmpty {
+            if deals.isEmpty, hotDeals.isEmpty {
                 Text("No active perks right now.")
                     .font(WKCCTypography.body)
                     .foregroundStyle(WKCCColors.textSecondary)
@@ -200,6 +206,15 @@ struct BusinessDetailView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
+                }
+
+                ForEach(hotDeals) { hotDeal in
+                    DealCard(
+                        deal: hotDeal.asSummary,
+                        businessLogoURL: logoURL,
+                        hotDeal: hotDeal
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
