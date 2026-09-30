@@ -109,6 +109,8 @@ struct PerkCardBackground: View {
 struct DealCard: View {
     let deal: DealSummary
     var businessLogoURL: URL? = nil
+    /// Set when the card stands for a Chambermate hot deal: View only, nothing to redeem.
+    var hotDeal: HotDeal? = nil
 
     private let logoSize: CGFloat = 92
     /// How far the logo hangs past the white card on the top and leading edges.
@@ -168,28 +170,37 @@ struct DealCard: View {
             Spacer(minLength: WKCCSpacing.xs)
 
             HStack(spacing: WKCCSpacing.xs) {
-                NavigationLink(value: deal) {
-                    dealCTALabel(
-                        title: "View",
-                        systemImage: "eye",
-                        style: .secondary
-                    )
-                }
-                .buttonStyle(.plain)
+                viewLink
 
-                Button {
-                    Task { await openRedemption() }
-                } label: {
-                    dealCTALabel(
-                        title: "Redeem",
-                        systemImage: "qrcode",
-                        style: .primary
-                    )
+                if hotDeal == nil {
+                    Button {
+                        Task { await openRedemption() }
+                    } label: {
+                        dealCTALabel(
+                            title: "Redeem",
+                            systemImage: "qrcode",
+                            style: .primary
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deal.isExpired || isLoadingRedeem)
+                    .opacity(deal.isExpired ? 0.45 : 1)
                 }
-                .buttonStyle(.plain)
-                .disabled(deal.isExpired || isLoadingRedeem)
-                .opacity(deal.isExpired ? 0.45 : 1)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var viewLink: some View {
+        let label = dealCTALabel(title: "View", systemImage: "eye", style: .secondary)
+        if let hotDeal {
+            NavigationLink {
+                DealDetailView(hotDeal: hotDeal, logoURL: businessLogoURL)
+            } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: deal) { label }
+                .buttonStyle(.plain)
         }
     }
 

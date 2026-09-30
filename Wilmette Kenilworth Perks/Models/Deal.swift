@@ -66,6 +66,41 @@ struct HotDeal: Identifiable, Equatable, Hashable {
         guard let expirationDate else { return false }
         return expirationDate < Date()
     }
+
+    /// Shape for `DealCard`. Hot deals carry no category, so they file under Other.
+    var asSummary: DealSummary {
+        DealSummary(
+            id: id,
+            title: title,
+            businessId: businessId ?? "",
+            businessName: businessName,
+            shortDescription: title,
+            category: .other,
+            expirationDate: expirationDate,
+            isFeatured: false,
+            membersOnly: false
+        )
+    }
+
+    /// Shape for `DealDetailView`. Redemption fields stay empty: there is nothing to redeem.
+    var asDetail: DealDetail {
+        DealDetail(
+            id: id,
+            title: title,
+            businessId: businessId ?? "",
+            businessName: businessName,
+            description: body,
+            terms: nil,
+            redemptionInstructions: "",
+            redemptionCode: nil,
+            startDate: startDate,
+            expirationDate: expirationDate,
+            category: .other,
+            imageURL: nil,
+            membersOnly: false,
+            isFeatured: false
+        )
+    }
 }
 
 struct DealDetail: Codable, Identifiable, Equatable {

@@ -13,6 +13,7 @@ enum DealFilter: String, CaseIterable, Identifiable {
 @MainActor
 final class DealsListViewModel {
     private(set) var deals: [DealSummary] = []
+    private(set) var hotDeals: [HotDeal] = []
     private(set) var businessLogoURLs: [String: URL] = [:]
     private(set) var isLoading = false
     private(set) var errorMessage: String?
@@ -45,6 +46,20 @@ final class DealsListViewModel {
         }
     }
 
+    /// Hot deals have no category and are never featured, so only the unfiltered and
+    /// expiring-soon views include them.
+    var filteredHotDeals: [HotDeal] {
+        guard selectedCategory == nil else { return [] }
+        return hotDeals.filter { deal in
+            guard !deal.isExpired else { return false }
+            return switch selectedFilter {
+            case .all: true
+            case .featured: false
+            case .expiringSoon: deal.asSummary.isExpiringSoon
+            }
+        }
+    }
+
     func logoURL(for businessId: String) -> URL? {
         businessLogoURLs[businessId]
     }
@@ -57,7 +72,10 @@ final class DealsListViewModel {
         do {
             async let dealsTask = dealsService.fetchDeals()
             async let businessesTask = businessService.fetchBusinesses()
+            // Supplementary: a hot deals failure must not blank the Deals page.
+            async let hotDealsTask = try? dealsService.fetchHotDeals()
             deals = try await dealsTask
+            hotDeals = await hotDealsTask ?? []
             let businesses = (try? await businessesTask) ?? []
             businessLogoURLs = Dictionary(
                 uniqueKeysWithValues: businesses.compactMap { business in
