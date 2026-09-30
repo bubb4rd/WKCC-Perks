@@ -24,7 +24,8 @@ struct AdminPerksListView: View {
         .wkccPageBackground()
         .modifier(AdminPerksListNavigationModifier(isEmbedded: isEmbedded))
         .refreshable {
-            await viewModel.load()
+            // Own task so a mid-pull view update can't cancel the request.
+            await Task { await viewModel.load() }.value
         }
         .task(id: refreshToken) {
             await viewModel.load()

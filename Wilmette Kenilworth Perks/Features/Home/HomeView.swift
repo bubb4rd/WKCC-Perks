@@ -2,28 +2,31 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(AuthManager.self) private var authManager
+    @Environment(\.selectMainTab) private var selectMainTab
     @State private var viewModel = HomeViewModel()
     @State private var notificationsViewModel = NotificationsViewModel()
     @State private var isShowingNotifications = false
 
-    private let bentoColumns = [
-        GridItem(.flexible(), spacing: WKCCSpacing.sm),
-        GridItem(.flexible(), spacing: WKCCSpacing.sm)
-    ]
-
     var body: some View {
         NavigationStack {
-            Group {
-                if viewModel.isLoading && viewModel.deals.isEmpty {
-                    LoadingView(message: "Loading your perks...")
-                } else {
-                    scrollContent
+            VStack(spacing: 0) {
+                header
+
+                Group {
+                    if viewModel.isLoading && viewModel.deals.isEmpty {
+                        LoadingView(message: "Loading your perks...")
+                    } else {
+                        scrollContent
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .refreshable {
+                    // Own task so a mid-pull view update can't cancel the request.
+                    await Task { await viewModel.load() }.value
                 }
             }
+            .wkccPageBackground()
             .toolbar(.hidden, for: .navigationBar)
-            .refreshable {
-                await viewModel.load()
-            }
             .task {
                 await viewModel.load()
             }
@@ -54,54 +57,32 @@ struct HomeView: View {
                 switch destination {
                 case .allDeals:
                     DealsListView()
-                case .expiringDeals:
-                    DealsListView(initialFilter: .expiringSoon)
-                case .businesses:
-                    BusinessesListView()
-                case .memberCard:
-                    MemberCardView()
+                case .submitPromotion:
+                    SubmitPromotionView()
                 }
             }
         }
     }
 
-    private var scrollContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
-                if let error = viewModel.errorMessage {
-                    ErrorBanner(message: error) {
-                        viewModel.dismissError()
-                    }
-                }
-                homeGreeting
-                if let spotlight = viewModel.spotlightDeal {
-                    spotlightSection(spotlight, imageURL: viewModel.spotlightImageURL)
-                }
+    // MARK: - Header
 
-                quickAccessGrid
+    private var header: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+            homeGreeting
+                .padding(.horizontal, WKCCSpacing.md)
 
-                if !viewModel.previewBusinesses.isEmpty {
-                    partnerStrip
-                }
-            }
-            .padding(.horizontal, WKCCSpacing.md)
-            .padding(.top, WKCCSpacing.sm)
-            .padding(.bottom, WKCCSpacing.xl)
+            WKCCSearchField(prompt: "Search perks and businesses", text: $viewModel.searchText)
+                .padding(.horizontal, WKCCSpacing.md)
         }
-        .wkccPageBackground()
-    }
-
-    private var notificationRefreshKey: String {
-        "\(authManager.member?.id ?? "guest")-\(authManager.isChamberAdmin)"
+        .padding(.top, WKCCSpacing.sm)
+        .padding(.bottom, WKCCSpacing.xs)
     }
 
     private var homeGreeting: some View {
         HStack(alignment: .center, spacing: WKCCSpacing.sm) {
-            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
-                Text("Hi, \(authManager.member?.greetingName ?? "Guest")")
-                    .font(WKCCTypography.sectionTitle)
-                    .foregroundStyle(WKCCColors.primary)
-            }
+            Text("Hi, \(authManager.member?.greetingName ?? "Guest")")
+                .font(WKCCTypography.sectionTitle)
+                .foregroundStyle(WKCCColors.primary)
 
             Spacer(minLength: 0)
 
@@ -113,79 +94,150 @@ struct HomeView: View {
         }
     }
 
-    private func spotlightSection(_ deal: DealSummary, imageURL: URL?) -> some View {
-        NavigationLink(value: deal) {
-            SpotlightCard(deal: deal, imageURL: imageURL)
-        }
-        .buttonStyle(.plain)
-    }
+    // MARK: - Content
 
-    private var quickAccessGrid: some View {
-        LazyVGrid(columns: bentoColumns, spacing: WKCCSpacing.sm) {
-            NavigationLink(value: HomeDestination.allDeals) {
-                BentoTile(
-                    icon: "tag.fill",
-                    value: "\(viewModel.activeDealCount)",
-                    label: "Perks",
-                    tint: WKCCColors.primary
-                )
-            }
+    private var scrollContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: WKCCSpacing.lg) {
+                if let error = viewModel.errorMessage {
+                    ErrorBanner(message: error) {
+                        viewModel.dismissError()
+                    }
+                }
 
-            NavigationLink(value: HomeDestination.expiringDeals) {
-                BentoTile(
-                    icon: "clock.fill",
-                    value: "\(viewModel.expiringDealCount)",
-                    label: "Ending Soon",
-                    tint: viewModel.expiringDealCount > 0 ? WKCCColors.warning : WKCCColors.textSecondary
-                )
-            }
+                if !viewModel.isFiltering, let spotlight = viewModel.spotlightDeal {
+                    NavigationLink(value: spotlight) {
+                        SpotlightCard(deal: spotlight, imageURL: viewModel.spotlightImageURL)
+                    }
+                    .buttonStyle(.plain)
+                }
 
-            NavigationLink(value: HomeDestination.businesses) {
-                BentoTile(
-                    icon: "building.2.fill",
-                    value: "\(viewModel.businessCount)",
-                    label: "Partners",
-                    tint: WKCCColors.primary
-                )
-            }
+                perksSection
 
-            NavigationLink(value: HomeDestination.memberCard) {
-                Image("WKCCLogo")
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .frame(minHeight: HomeBentoMetrics.tileMinHeight)
-                    .padding(HomeBentoMetrics.tilePadding)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Member Card")
-            }
-            .allowsHitTesting(false)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var partnerStrip: some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            HStack {
-                Text("Partners")
-                    .font(WKCCTypography.headline)
-                    .foregroundStyle(WKCCColors.textPrimary)
-
-                Spacer()
-
-                NavigationLink(value: HomeDestination.businesses) {
-                    Text("View all")
-                        .font(WKCCTypography.captionBold)
-                        .foregroundStyle(WKCCColors.accent)
+                if !viewModel.isFiltering, !viewModel.previewBusinesses.isEmpty {
+                    if viewModel.showsOnlySpotlight {
+                        featuredBusinessesGrid
+                    } else {
+                        businessesStrip
+                    }
                 }
             }
+            .padding(.horizontal, WKCCSpacing.md)
+            .padding(.top, WKCCSpacing.xs)
+            .padding(.bottom, WKCCSpacing.xl)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    @ViewBuilder
+    private var perksSection: some View {
+        let deals = viewModel.listedDeals
+
+        if viewModel.isFiltering || !deals.isEmpty || viewModel.showsOnlySpotlight {
+            VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+                HStack {
+                    Text(perksSectionTitle(count: deals.count))
+                        .font(WKCCTypography.headline)
+                        .foregroundStyle(WKCCColors.textPrimary)
+
+                    Spacer()
+
+                    NavigationLink(value: HomeDestination.allDeals) {
+                        Text("View all")
+                            .font(WKCCTypography.captionBold)
+                            .foregroundStyle(WKCCColors.accent)
+                    }
+                }
+
+                if viewModel.showsOnlySpotlight {
+                    // The spotlight is the only perk; a quiet empty slot keeps the focus on it.
+                    NavigationLink(value: HomeDestination.submitPromotion) {
+                        EmptyPerkSlot()
+                    }
+                    .buttonStyle(.plain)
+                } else if deals.isEmpty {
+                    EmptyStateView(
+                        icon: "magnifyingglass",
+                        title: "No Perks Found",
+                        message: "Try a different search."
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, WKCCSpacing.lg)
+                } else {
+                    LazyVStack(spacing: WKCCSpacing.sm) {
+                        ForEach(deals) { deal in
+                            NavigationLink(value: deal) {
+                                PerkRow(
+                                    deal: deal,
+                                    logoURL: viewModel.logoURL(forBusinessId: deal.businessId)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        } else if viewModel.spotlightDeal == nil {
+            EmptyStateView(
+                icon: "tag",
+                title: "No Perks Yet",
+                message: "Check back soon for member perks."
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.top, WKCCSpacing.xl)
+        }
+    }
+
+    private func businessesHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(WKCCTypography.headline)
+                .foregroundStyle(WKCCColors.textPrimary)
+
+            Spacer()
+
+            // Switch tabs rather than push: the Businesses page hides its nav bar,
+            // so a pushed copy would have no back button.
+            Button {
+                selectMainTab(.businesses)
+            } label: {
+                Text("View all")
+                    .font(WKCCTypography.captionBold)
+                    .foregroundStyle(WKCCColors.accent)
+            }
+        }
+    }
+
+    /// Shown instead of the logo strip when the spotlight is the only perk, to fill the page.
+    private var featuredBusinessesGrid: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+            businessesHeader("Featured businesses")
+
+            LazyVGrid(columns: featuredGridColumns, spacing: WKCCSpacing.md) {
+                ForEach(viewModel.previewBusinesses.prefix(4)) { business in
+                    NavigationLink(value: business) {
+                        BusinessGridCard(business: business)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private let featuredGridColumns = [
+        GridItem(.flexible(), spacing: WKCCSpacing.md, alignment: .top),
+        GridItem(.flexible(), spacing: WKCCSpacing.md, alignment: .top)
+    ]
+
+    private var businessesStrip: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+            businessesHeader("Businesses")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: WKCCSpacing.md) {
+                HStack(alignment: .top, spacing: WKCCSpacing.md) {
                     ForEach(viewModel.previewBusinesses) { business in
                         NavigationLink(value: business) {
-                            PartnerChip(business: business)
+                            BusinessChip(business: business)
                         }
                         .buttonStyle(.plain)
                     }
@@ -194,20 +246,21 @@ struct HomeView: View {
         }
     }
 
-}
+    private func perksSectionTitle(count: Int) -> String {
+        guard viewModel.isFiltering else { return "Perks for you" }
+        return count == 1 ? "1 perk" : "\(count) perks"
+    }
 
-private enum HomeBentoMetrics {
-    static let tileMinHeight: CGFloat = 128
-    static let tilePadding: CGFloat = WKCCSpacing.md
+    private var notificationRefreshKey: String {
+        "\(authManager.member?.id ?? "guest")-\(authManager.isChamberAdmin)"
+    }
 }
 
 // MARK: - Navigation
 
 private enum HomeDestination: Hashable {
     case allDeals
-    case expiringDeals
-    case businesses
-    case memberCard
+    case submitPromotion
 }
 
 // MARK: - Components
@@ -252,7 +305,7 @@ private struct SpotlightCard: View {
     let deal: DealSummary
     let imageURL: URL?
 
-    private let cardHeight: CGFloat = 220
+    private let cardHeight: CGFloat = 260
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -267,7 +320,7 @@ private struct SpotlightCard: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
                         Text(deal.title)
-                            .font(.system(.title3, design: .default).weight(.bold))
+                            .font(.system(.title2, design: .default).weight(.bold))
                             .foregroundStyle(.white)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -319,39 +372,107 @@ private struct SpotlightCard: View {
     }
 }
 
-private struct BentoTile: View {
-    let icon: String
-    let value: String?
-    let label: String
-    let tint: Color
+/// Compact perk row: logo thumbnail, title, business, and category / expiry meta line.
+private struct PerkRow: View {
+    let deal: DealSummary
+    let logoURL: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(tint)
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            BusinessLogoView(
+                url: logoURL,
+                size: 64,
+                shape: .roundedRect(cornerRadius: WKCCRadius.md)
+            )
 
-            Spacer(minLength: 0)
-
-            if let value {
-                Text(value)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                Text(deal.title)
+                    .font(WKCCTypography.headline)
                     .foregroundStyle(WKCCColors.textPrimary)
-            }
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
 
-            Text(label)
-                .font(WKCCTypography.captionBold)
+                Text(deal.businessName)
+                    .font(WKCCTypography.callout)
+                    .foregroundStyle(WKCCColors.textSecondary)
+                    .lineLimit(1)
+
+                metaLine
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
                 .foregroundStyle(WKCCColors.textSecondary)
-                .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, minHeight: HomeBentoMetrics.tileMinHeight, alignment: .leading)
-        .padding(HomeBentoMetrics.tilePadding)
-        .background(WKCCColors.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.lg))
+        .padding(WKCCSpacing.sm)
+        .wkccCardStyle()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var metaLine: some View {
+        HStack(spacing: WKCCSpacing.xxs) {
+            Image(systemName: deal.category.iconName)
+            Text(deal.category.rawValue)
+                .lineLimit(1)
+
+            if let expiration = deal.expirationDate {
+                Text("·")
+                Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day()))")
+                    .foregroundStyle(deal.isExpiringSoon ? WKCCColors.warning : WKCCColors.textSecondary)
+                    .fixedSize()
+            }
+        }
+        .font(WKCCTypography.caption)
+        .foregroundStyle(WKCCColors.accent)
     }
 }
 
-private struct PartnerChip: View {
+/// Quiet placeholder in the shape of a `PerkRow`, shown when the spotlight is the only perk.
+/// Deliberately low-contrast (no fill, dashed outline) so it doesn't compete with the spotlight.
+private struct EmptyPerkSlot: View {
+    private let shape = RoundedRectangle(cornerRadius: WKCCRadius.lg)
+
+    var body: some View {
+        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+            RoundedRectangle(cornerRadius: WKCCRadius.md)
+                .fill(WKCCColors.primary.opacity(0.05))
+                .frame(width: 64, height: 64)
+                .overlay {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(WKCCColors.textSecondary)
+                }
+
+            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                Text("Your perk could be here")
+                    .font(WKCCTypography.callout.weight(.semibold))
+                    .foregroundStyle(WKCCColors.textSecondary)
+
+                HStack(spacing: WKCCSpacing.xxs) {
+                    Text("Submit a promotion")
+                    Image(systemName: "arrow.right")
+                }
+                .font(WKCCTypography.caption.weight(.semibold))
+                .foregroundStyle(WKCCColors.accent)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(WKCCSpacing.sm)
+        .overlay {
+            shape.strokeBorder(
+                WKCCColors.primary.opacity(0.18),
+                style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
+            )
+        }
+        .contentShape(shape)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Round logo with the business name underneath, for the Home "Businesses" strip.
+private struct BusinessChip: View {
     let business: ChamberBusiness
 
     var body: some View {

@@ -32,6 +32,8 @@ final class MySubmissionsViewModel {
         do {
             let fetched = try await submissionService.fetchSubmissions(status: selectedFilter.status)
             records = fetched.filter { $0.submitterMemberId == submitterMemberId }
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh or filter change); not a failure.
         } catch {
             errorMessage = "Unable to load your submissions."
         }

@@ -43,7 +43,8 @@ struct NotificationsView: View {
                 }
             }
             .refreshable {
-                await viewModel.load(member: member, isAdmin: isAdmin)
+                // Own task so a mid-pull view update can't cancel the request.
+                await Task { await viewModel.load(member: member, isAdmin: isAdmin) }.value
             }
             .task {
                 await viewModel.load(member: member, isAdmin: isAdmin)

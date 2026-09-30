@@ -81,7 +81,7 @@ struct BusinessesListView: View {
 
     private var headerBar: some View {
         HStack(spacing: WKCCSpacing.xs) {
-            searchField
+            WKCCSearchField(prompt: "Search businesses", text: $viewModel.searchText)
 
             Menu {
                 Picker("Layout", selection: $layout) {
@@ -106,34 +106,6 @@ struct BusinessesListView: View {
         .padding(.horizontal, WKCCSpacing.md)
         .padding(.top, WKCCSpacing.xs)
         .padding(.bottom, WKCCSpacing.xs)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: WKCCSpacing.xs) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(WKCCColors.textSecondary)
-
-            TextField("Search businesses", text: $viewModel.searchText)
-                .foregroundStyle(WKCCColors.textPrimary)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-
-            if !viewModel.searchText.isEmpty {
-                Button {
-                    viewModel.searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(WKCCColors.textSecondary)
-                }
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .font(WKCCTypography.body)
-        .padding(.horizontal, WKCCSpacing.sm)
-        .frame(height: 44)
-        .background(WKCCColors.cardBackground, in: Capsule())
-        .wkccCardShadow()
     }
 
     private func headerIcon(_ systemName: String, isActive: Bool = false) -> some View {

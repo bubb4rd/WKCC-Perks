@@ -79,8 +79,20 @@ struct ErrorStateView: View {
     }
 }
 
+enum MainTab: Hashable {
+    case home
+    case deals
+    case businesses
+    case profile
+}
+
+extension EnvironmentValues {
+    /// Switches the main tab bar, e.g. Home's "View all" jumping to the Businesses tab.
+    @Entry var selectMainTab: (MainTab) -> Void = { _ in }
+}
+
 struct MainTabView: View {
-    @State private var selectedTab = 0
+    @State private var selectedTab: MainTab = .home
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -88,7 +100,7 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
                 }
-                .tag(0)
+                .tag(MainTab.home)
 
             NavigationStack {
                 DealsListView()
@@ -96,7 +108,7 @@ struct MainTabView: View {
             .tabItem {
                 Label("Deals", systemImage: "tag.fill")
             }
-            .tag(1)
+            .tag(MainTab.deals)
 
             NavigationStack {
                 BusinessesListView()
@@ -104,7 +116,7 @@ struct MainTabView: View {
             .tabItem {
                 Label("Businesses", systemImage: "building.2.fill")
             }
-            .tag(2)
+            .tag(MainTab.businesses)
 
             NavigationStack {
                 ProfileView()
@@ -112,8 +124,9 @@ struct MainTabView: View {
             .tabItem {
                 Label("Profile", systemImage: "person.fill")
             }
-            .tag(3)
+            .tag(MainTab.profile)
         }
+        .environment(\.selectMainTab) { selectedTab = $0 }
         .tint(WKCCColors.primary)
         .toolbarBackground(WKCCColors.cardBackground, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)

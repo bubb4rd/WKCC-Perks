@@ -26,6 +26,8 @@ final class AdminSubmissionsViewModel {
 
         do {
             records = try await submissionService.fetchSubmissions(status: selectedFilter.status)
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh or filter change); not a failure.
         } catch {
             errorMessage = "Unable to load submissions."
         }
