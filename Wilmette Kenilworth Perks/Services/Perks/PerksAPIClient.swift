@@ -202,6 +202,28 @@ struct PerksDealSummaryDTO: Decodable {
     }
 }
 
+struct PerksHotDealDTO: Decodable {
+    let id: String
+    let title: String
+    let businessId: String?
+    let businessName: String
+    let body: String
+    let startDate: Date?
+    let expirationDate: Date?
+
+    func toModel() -> HotDeal {
+        HotDeal(
+            id: id,
+            title: title,
+            businessId: businessId,
+            businessName: businessName,
+            body: body,
+            startDate: startDate,
+            expirationDate: expirationDate
+        )
+    }
+}
+
 struct PerksDealDetailDTO: Decodable {
     let id: String
     let title: String

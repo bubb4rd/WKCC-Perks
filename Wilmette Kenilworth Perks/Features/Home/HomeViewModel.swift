@@ -6,6 +6,8 @@ import Observation
 final class HomeViewModel {
     private(set) var deals: [DealSummary] = []
     private(set) var businesses: [ChamberBusiness] = []
+    /// Live posts from the Chambermate Hot Deals board; when present they take the spotlight.
+    private(set) var hotDeals: [HotDeal] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -30,8 +32,11 @@ final class HomeViewModel {
         activeDeals.filter(\.isFeatured)
     }
 
+    /// The perk spotlight. Hot deals take the spotlight slot while any are live, so this is nil then
+    /// and every perk falls into the list below.
     var spotlightDeal: DealSummary? {
-        featuredDeals.first ?? activeDeals.first
+        guard hotDeals.isEmpty else { return nil }
+        return featuredDeals.first ?? activeDeals.first
     }
 
     var spotlightImageURL: URL? {
@@ -71,6 +76,10 @@ final class HomeViewModel {
         businesses.first(where: { $0.id == id })?.logoURL
     }
 
+    func logoURL(for hotDeal: HotDeal) -> URL? {
+        hotDeal.businessId.flatMap { logoURL(forBusinessId: $0) }
+    }
+
     private var trimmedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -83,8 +92,11 @@ final class HomeViewModel {
         do {
             async let dealsTask = dealsService.fetchDeals()
             async let businessesTask = businessService.fetchBusinesses()
+            // Supplementary: a hot deals failure (e.g. feed not deployed yet) must not blank Home.
+            async let hotDealsTask = try? dealsService.fetchHotDeals()
             deals = try await dealsTask
             businesses = try await businessesTask
+            hotDeals = (await hotDealsTask ?? []).filter { !$0.isExpired }
         } catch let error where error.isCancellation {
             // Cancelled by SwiftUI (e.g. mid-refresh); keep current content, not a failure.
         } catch {

@@ -1360,6 +1360,158 @@ async function handleSyncMembers(req: Request): Promise<Response> {
   return jsonResponse({ ok: true, upserted: rows.length });
 }
 
+type ChambermatePost = {
+  postKey?: string;
+  title?: string;
+  postHtml?: { html?: string | null } | null;
+  companyName?: string | null;
+  avatarStorageKey?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  [key: string]: unknown;
+};
+
+/** Flattens a Chambermate rich-text post body to plain text with paragraph breaks. */
+function postHtmlToText(html: string): string {
+  return html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|li|div|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Post dates are UTC but come without a zone suffix ("2026-12-01T06:00:00"). */
+function postDateToISO(value?: string | null): string | null {
+  if (!value) return null;
+  const iso = /(z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+function normalizeCompanyName(name: string): string {
+  return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Mirrors the Chambermate "Hot Deals" board (public getPostsInfo feed, no API
+ * key needed) into `hot_deals`. Read-only in the app: rows are replaced on every
+ * run and posts that left the board are deleted. Posts carry only a company
+ * name, so business_id is filled by exact normalized-name match against current
+ * members; unmatched posts still sync (business_id null) and are reported.
+ */
+async function handleSyncHotDeals(req: Request): Promise<Response> {
+  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
+  const provided = req.headers.get("x-sync-secret") ?? "";
+  if (!syncSecret || provided !== syncSecret) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+
+  const baseURL = (
+    Deno.env.get("CHAMBERMATE_BASE_URL") ?? "https://api.chambermate.com/core/biz"
+  ).replace(/\/+$/, "");
+  const params = new URLSearchParams({
+    websiteShorthand: Deno.env.get("CHAMBERMATE_WEBSITE_SHORTHAND") ??
+      "wilmettekenilworth",
+    websiteDomain: Deno.env.get("CHAMBERMATE_WEBSITE_DOMAIN") ??
+      "www.wilmettekenilworth.com",
+    boardId: Deno.env.get("CHAMBERMATE_HOT_DEALS_BOARD_ID") ?? "1652",
+  });
+
+  const response = await fetch(
+    `${baseURL}/webPresence/getPostsInfo?${params}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    return jsonResponse(
+      { error: `Hot deals sync failed: ${response.status} ${text}` },
+      502,
+    );
+  }
+
+  const payload = await response.json();
+  if (payload?.status !== true || !Array.isArray(payload?.data?.posts)) {
+    return jsonResponse(
+      {
+        error: `Hot deals sync failed: ${
+          payload?.error?.errorMessage ?? payload?.message ?? "unexpected response"
+        }`,
+      },
+      502,
+    );
+  }
+  const posts = payload.data.posts as ChambermatePost[];
+
+  const supabase = supabaseAdmin();
+  const { data: members, error: membersError } = await supabase
+    .from("chamber_members")
+    .select("cm_id, name, display_name")
+    .eq("status", ACTIVE_STATUS);
+  if (membersError) throw membersError;
+
+  const cmIdByName = new Map<string, number>();
+  for (const member of members ?? []) {
+    for (const name of [member.name, member.display_name]) {
+      if (typeof name !== "string" || !name) continue;
+      const key = normalizeCompanyName(name);
+      if (key && !cmIdByName.has(key)) cmIdByName.set(key, member.cm_id);
+    }
+  }
+
+  const syncedAt = new Date().toISOString();
+  const unmatched: string[] = [];
+  const rows = posts
+    .filter((post) => typeof post.postKey === "string" && post.postKey)
+    .map((post) => {
+      const companyName = String(post.companyName ?? "").trim();
+      const cmId = cmIdByName.get(normalizeCompanyName(companyName));
+      if (cmId === undefined) unmatched.push(companyName || String(post.postKey));
+      return {
+        post_key: post.postKey as string,
+        title: String(post.title ?? "").trim(),
+        body: postHtmlToText(String(post.postHtml?.html ?? "")),
+        company_name: companyName,
+        business_id: cmId === undefined ? null : String(cmId),
+        avatar_storage_key: post.avatarStorageKey ?? null,
+        start_date: postDateToISO(post.startDate),
+        end_date: postDateToISO(post.endDate),
+        raw: post as unknown as Record<string, unknown>,
+        synced_at: syncedAt,
+      };
+    });
+
+  if (rows.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("hot_deals")
+      .upsert(rows, { onConflict: "post_key" });
+    if (upsertError) throw upsertError;
+  }
+
+  // The feed parsed cleanly, so an empty board is real: drop anything that left it.
+  const keep = rows.map((row) => `"${row.post_key}"`);
+  const stale = supabase.from("hot_deals").delete();
+  const { error: deleteError } = keep.length > 0
+    ? await stale.not("post_key", "in", `(${keep.join(",")})`)
+    : await stale.neq("post_key", "");
+  if (deleteError) throw deleteError;
+
+  return jsonResponse({
+    ok: true,
+    upserted: rows.length,
+    matched: rows.length - unmatched.length,
+    unmatched,
+  });
+}
+
 const LOGO_SYNC_DEFAULT_LIMIT = 25;
 const LOGO_SYNC_MAX_LIMIT = 50;
 const LOGO_SYNC_TIMEOUT_MS = 15_000;
@@ -1712,6 +1864,9 @@ Deno.serve(async (req) => {
     }
     if (route === "sync-members" && req.method === "POST") {
       return await handleSyncMembers(req);
+    }
+    if (route === "sync-hot-deals" && req.method === "POST") {
+      return await handleSyncHotDeals(req);
     }
     if (route === "sync-logos" && req.method === "POST") {
       return await handleSyncLogos(req);

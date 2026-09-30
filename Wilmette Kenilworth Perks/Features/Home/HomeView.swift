@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @State private var notificationsViewModel = NotificationsViewModel()
     @State private var isShowingNotifications = false
+    @State private var selectedHotDeal: HotDeal?
 
     var body: some View {
         NavigationStack {
@@ -47,6 +48,9 @@ struct HomeView: View {
                     member: authManager.member,
                     isAdmin: authManager.isChamberAdmin
                 )
+            }
+            .sheet(item: $selectedHotDeal) { deal in
+                HotDealDetailSheet(deal: deal)
             }
             .navigationDestination(for: DealSummary.self) { deal in
                 DealDetailView(dealId: deal.id)
@@ -123,6 +127,13 @@ struct HomeView: View {
                     }
                 }
 
+                if !viewModel.isFiltering, !viewModel.hotDeals.isEmpty {
+                    HotDealsSpotlight(
+                        deals: viewModel.hotDeals,
+                        logoURL: { viewModel.logoURL(for: $0) }
+                    ) { selectedHotDeal = $0 }
+                }
+
                 if !viewModel.isFiltering, let spotlight = viewModel.spotlightDeal {
                     NavigationLink(value: spotlight) {
                         SpotlightCard(deal: spotlight, imageURL: viewModel.spotlightImageURL)
@@ -195,7 +206,7 @@ struct HomeView: View {
                     }
                 }
             }
-        } else if viewModel.spotlightDeal == nil {
+        } else if viewModel.spotlightDeal == nil, viewModel.hotDeals.isEmpty {
             EmptyStateView(
                 icon: "tag",
                 title: "No Perks Yet",
@@ -316,6 +327,163 @@ private struct NotificationBellButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Notifications")
         .accessibilityValue(unreadCount > 0 ? "\(unreadCount) unread" : "No unread notifications")
+    }
+}
+
+/// Rotating spotlight for the chamber's Chambermate "Hot Deals" board. Auto-advances and
+/// swipes when there is more than one; a single deal is just a card.
+private struct HotDealsSpotlight: View {
+    let deals: [HotDeal]
+    let logoURL: (HotDeal) -> URL?
+    let onSelect: (HotDeal) -> Void
+
+    @State private var selection = 0
+
+    private var showsPageDots: Bool { deals.count > 1 }
+
+    var body: some View {
+        TabView(selection: $selection) {
+            ForEach(Array(deals.enumerated()), id: \.element.id) { index, deal in
+                Button {
+                    onSelect(deal)
+                } label: {
+                    HotDealCard(deal: deal, imageURL: logoURL(deal), showsPageDots: showsPageDots)
+                }
+                .buttonStyle(.plain)
+                .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: showsPageDots ? .automatic : .never))
+        .frame(height: 260)
+        .onChange(of: deals.count) { _, count in
+            selection = min(selection, max(count - 1, 0))
+        }
+        .task(id: deals.count) {
+            guard deals.count > 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                withAnimation { selection = (selection + 1) % deals.count }
+            }
+        }
+    }
+}
+
+private struct HotDealCard: View {
+    let deal: HotDeal
+    let imageURL: URL?
+    let showsPageDots: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            PerkCardBackground(imageURL: imageURL)
+
+            VStack(alignment: .leading, spacing: 0) {
+                badge
+                    .padding(WKCCSpacing.lg)
+
+                Spacer(minLength: 0)
+
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                        Text(deal.title)
+                            .font(.system(.title2, design: .default).weight(.bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+
+                        Text(deal.businessName)
+                            .font(WKCCTypography.callout)
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
+
+                        if let expiration = deal.expirationDate {
+                            Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day()))")
+                                .font(WKCCTypography.callout.weight(.medium))
+                                .foregroundStyle(WKCCColors.accent)
+                        }
+                    }
+
+                    Spacer(minLength: WKCCSpacing.sm)
+
+                    HStack(spacing: WKCCSpacing.xxs) {
+                        Text("View")
+                            .font(WKCCTypography.callout.weight(.semibold))
+                        Image(systemName: "arrow.right")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                }
+                .padding(.horizontal, WKCCSpacing.lg)
+                .padding(.top, WKCCSpacing.lg)
+                // Keeps the title clear of the page dots.
+                .padding(.bottom, showsPageDots ? WKCCSpacing.xl + WKCCSpacing.sm : WKCCSpacing.lg)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.xl))
+        .wkccCardShadow()
+    }
+
+    private var badge: some View {
+        HStack(spacing: WKCCSpacing.xxs) {
+            Image(systemName: "flame.fill")
+                .font(.caption)
+                .foregroundStyle(WKCCColors.accent)
+            Text("Hot deal")
+                .font(WKCCTypography.captionBold)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, WKCCSpacing.sm)
+        .padding(.vertical, WKCCSpacing.xxs)
+        .background(Color.black.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm))
+    }
+}
+
+/// Full text of a hot deal post. The board is the source of truth, so this is read-only.
+private struct HotDealDetailSheet: View {
+    let deal: HotDeal
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
+                    Text(deal.businessName)
+                        .font(WKCCTypography.callout.weight(.semibold))
+                        .foregroundStyle(WKCCColors.textSecondary)
+
+                    Text(deal.title)
+                        .font(WKCCTypography.title)
+                        .foregroundStyle(WKCCColors.textPrimary)
+
+                    if let expiration = deal.expirationDate {
+                        Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day().year()))")
+                            .font(WKCCTypography.callout.weight(.medium))
+                            .foregroundStyle(WKCCColors.accent)
+                    }
+
+                    if !deal.body.isEmpty {
+                        Text(deal.body)
+                            .font(WKCCTypography.body)
+                            .foregroundStyle(WKCCColors.textPrimary)
+                            .padding(.top, WKCCSpacing.xs)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(WKCCSpacing.md)
+            }
+            .wkccPageBackground()
+            .navigationTitle("Hot deal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }
 

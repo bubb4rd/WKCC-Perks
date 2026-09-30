@@ -459,6 +459,32 @@ async function handleGetDeals(): Promise<Response> {
   return jsonResponse((data ?? []).map(mapDealSummary));
 }
 
+function mapHotDeal(row: Record<string, unknown>) {
+  return {
+    id: String(row.post_key),
+    title: row.title,
+    businessId: row.business_id ?? null,
+    businessName: row.company_name,
+    body: row.body ?? "",
+    startDate: row.start_date ?? null,
+    expirationDate: row.end_date ?? null,
+  };
+}
+
+// Read-only mirror of the Chambermate "Hot Deals" board (see member-auth/sync-hot-deals).
+async function handleGetHotDeals(): Promise<Response> {
+  const supabase = supabaseAdmin();
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("hot_deals")
+    .select("*")
+    .or(`start_date.is.null,start_date.lte.${now}`)
+    .or(`end_date.is.null,end_date.gte.${now}`)
+    .order("end_date", { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  return jsonResponse((data ?? []).map(mapHotDeal));
+}
+
 async function handleGetDeal(
   id: string,
   options: { allowArchived?: boolean } = {},
@@ -1073,6 +1099,11 @@ Deno.serve(async (req) => {
       parts[0] === "device-tokens"
     ) {
       return await handleUnregisterDeviceToken(auth, req);
+    }
+
+    // GET /hot-deals
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "hot-deals") {
+      return await handleGetHotDeals();
     }
 
     // GET /deals
