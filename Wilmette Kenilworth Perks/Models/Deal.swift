@@ -126,6 +126,11 @@ struct DealDetail: Codable, Identifiable, Equatable {
 
     var isArchived: Bool { archivedAt != nil }
 
+    /// A promotion saved as "No code needed" stores no code, so nothing to redeem.
+    var requiresCode: Bool {
+        !(redemptionCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
     var isExpired: Bool {
         guard let expirationDate else { return false }
         return expirationDate < Date()
