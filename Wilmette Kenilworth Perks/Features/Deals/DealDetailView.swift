@@ -3,6 +3,19 @@ import SwiftUI
 
 struct DealDetailView: View {
     let dealId: String
+    /// Set for a Chambermate hot deal: shown as-is, with nothing to redeem.
+    private var hotDeal: HotDeal?
+    private var hotDealLogoURL: URL?
+
+    init(dealId: String) {
+        self.dealId = dealId
+    }
+
+    init(hotDeal: HotDeal, logoURL: URL?) {
+        self.dealId = hotDeal.id
+        self.hotDeal = hotDeal
+        self.hotDealLogoURL = logoURL
+    }
 
     @State private var viewModel = DealDetailViewModel()
     @State private var didCopyCode = false
@@ -23,12 +36,16 @@ struct DealDetailView: View {
                 )
             }
         }
-        .navigationTitle("Perk Details")
+        .navigationTitle(hotDeal == nil ? "Perk Details" : "Hot Deal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .task {
-            await viewModel.load(dealId: dealId)
+            if let hotDeal {
+                viewModel.show(hotDeal.asDetail, logoURL: hotDealLogoURL)
+            } else {
+                await viewModel.load(dealId: dealId)
+            }
         }
     }
 
@@ -47,7 +64,9 @@ struct DealDetailView: View {
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .wkccPageBackground()
         .safeAreaInset(edge: .bottom) {
-            redeemStickyBar(deal: deal)
+            if hotDeal == nil {
+                redeemStickyBar(deal: deal)
+            }
         }
         .sheet(isPresented: $isShowingRedemption) {
             DealRedemptionSheet(deal: deal, didCopyCode: $didCopyCode)
@@ -68,8 +87,20 @@ struct DealDetailView: View {
                 .font(.system(.title, design: .default).weight(.bold))
                 .foregroundStyle(Color.black)
                 .fixedSize(horizontal: false, vertical: true)
-            DealDetailMetadataGrid(deal: deal)
-            
+            DealDetailMetadataGrid(deal: deal, showsRedemption: hotDeal == nil)
+
+            businessLink(deal)
+        }
+    }
+
+    // Unmatched hot deals have no member page to open, so they show the name alone.
+    @ViewBuilder
+    private func businessLink(_ deal: DealDetail) -> some View {
+        if deal.businessId.isEmpty {
+            Text(deal.businessName)
+                .font(WKCCTypography.title)
+                .foregroundStyle(WKCCColors.textPrimary)
+        } else {
             NavigationLink {
                 BusinessDetailView(businessId: deal.businessId)
             } label: {
@@ -89,8 +120,6 @@ struct DealDetailView: View {
                 }
             }
             .buttonStyle(.plain)
-
-            
         }
     }
 
@@ -135,7 +164,7 @@ struct DealDetailView: View {
 
     private func detailSections(_ deal: DealDetail) -> some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.xl) {
-            editorialSection(title: "About this perk") {
+            editorialSection(title: hotDeal == nil ? "About this perk" : "About this deal") {
                 Text(deal.description)
                     .font(WKCCTypography.body)
                     .foregroundStyle(Color.black.opacity(0.85))
@@ -233,6 +262,7 @@ private struct DealDetailHeroImage: View {
 
 private struct DealDetailMetadataGrid: View {
     let deal: DealDetail
+    var showsRedemption = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
@@ -241,10 +271,12 @@ private struct DealDetailMetadataGrid: View {
                 value: availabilityText
             )
 
-            metadataItem(
-                icon: "qrcode",
-                value: deal.redemptionDisplayStyle.label
-            )
+            if showsRedemption {
+                metadataItem(
+                    icon: "qrcode",
+                    value: deal.redemptionDisplayStyle.label
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -49,8 +49,8 @@ struct HomeView: View {
                     isAdmin: authManager.isChamberAdmin
                 )
             }
-            .sheet(item: $selectedHotDeal) { deal in
-                HotDealDetailSheet(deal: deal)
+            .navigationDestination(item: $selectedHotDeal) { deal in
+                DealDetailView(hotDeal: deal, logoURL: viewModel.logoURL(for: deal))
             }
             .navigationDestination(for: DealSummary.self) { deal in
                 DealDetailView(dealId: deal.id)
@@ -433,51 +433,6 @@ private struct HotDealCard: View {
         .padding(.vertical, WKCCSpacing.xxs)
         .background(Color.black.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.sm))
-    }
-}
-
-/// Full text of a hot deal post. The board is the source of truth, so this is read-only.
-private struct HotDealDetailSheet: View {
-    let deal: HotDeal
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-                    Text(deal.businessName)
-                        .font(WKCCTypography.callout.weight(.semibold))
-                        .foregroundStyle(WKCCColors.textSecondary)
-
-                    Text(deal.title)
-                        .font(WKCCTypography.title)
-                        .foregroundStyle(WKCCColors.textPrimary)
-
-                    if let expiration = deal.expirationDate {
-                        Text("Ends \(expiration.formatted(.dateTime.month(.abbreviated).day().year()))")
-                            .font(WKCCTypography.callout.weight(.medium))
-                            .foregroundStyle(WKCCColors.accent)
-                    }
-
-                    if !deal.body.isEmpty {
-                        Text(deal.body)
-                            .font(WKCCTypography.body)
-                            .foregroundStyle(WKCCColors.textPrimary)
-                            .padding(.top, WKCCSpacing.xs)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(WKCCSpacing.md)
-            }
-            .wkccPageBackground()
-            .navigationTitle("Hot deal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
     }
 }
 
