@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AuthManager.self) private var authManager
     @Environment(\.selectMainTab) private var selectMainTab
+    @Environment(\.showBusinesses) private var showBusinesses
     @State private var viewModel = HomeViewModel()
     @State private var notificationsViewModel = NotificationsViewModel()
     @State private var isShowingNotifications = false
@@ -73,9 +74,26 @@ struct HomeView: View {
 
             WKCCSearchField(prompt: "Search perks and businesses", text: $viewModel.searchText)
                 .padding(.horizontal, WKCCSpacing.md)
+
+            categoryChips
         }
         .padding(.top, WKCCSpacing.sm)
         .padding(.bottom, WKCCSpacing.xs)
+    }
+
+    /// Tapping a chip opens the Businesses tab filtered to that category.
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: WKCCSpacing.xs) {
+                ForEach(DealCategory.allCases) { category in
+                    CategoryChip(category: category, isSelected: false) {
+                        showBusinesses(category)
+                    }
+                }
+            }
+            .padding(.horizontal, WKCCSpacing.md)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var homeGreeting: some View {
