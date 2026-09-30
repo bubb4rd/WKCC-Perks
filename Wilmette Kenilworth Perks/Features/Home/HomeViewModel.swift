@@ -95,8 +95,11 @@ final class HomeViewModel {
             // Supplementary: a hot deals failure (e.g. feed not deployed yet) must not blank Home.
             async let hotDealsTask = try? dealsService.fetchHotDeals()
             deals = try await dealsTask
-            businesses = try await businessesTask
             hotDeals = (await hotDealsTask ?? []).filter { !$0.isExpired }
+            // Supplementary too: a directory failure costs logos, not the perks and hot deals.
+            if let fetched = try? await businessesTask {
+                businesses = fetched
+            }
         } catch let error where error.isCancellation {
             // Cancelled by SwiftUI (e.g. mid-refresh); keep current content, not a failure.
         } catch {
