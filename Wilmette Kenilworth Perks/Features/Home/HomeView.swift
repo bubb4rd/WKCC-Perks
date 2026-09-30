@@ -73,11 +73,18 @@ struct HomeView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: WKCCSpacing.sm) {
-            homeGreeting
-                .padding(.horizontal, WKCCSpacing.md)
+            HStack(alignment: .center, spacing: WKCCSpacing.sm) {
+                WKCCLogoView(style: .mark, maxWidth: 44)
 
-            WKCCSearchField(prompt: "Search perks and businesses", text: $viewModel.searchText)
-                .padding(.horizontal, WKCCSpacing.md)
+                WKCCSearchField(prompt: "Search perks and businesses", text: $viewModel.searchText)
+
+                if AppConfig.useMockAuth {
+                    NotificationBellButton(unreadCount: notificationsViewModel.unreadCount) {
+                        isShowingNotifications = true
+                    }
+                }
+            }
+            .padding(.horizontal, WKCCSpacing.md)
 
             categoryChips
         }
@@ -98,22 +105,6 @@ struct HomeView: View {
             .padding(.horizontal, WKCCSpacing.md)
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var homeGreeting: some View {
-        HStack(alignment: .center, spacing: WKCCSpacing.sm) {
-            Text("Hi, \(authManager.member?.greetingName ?? "Guest")")
-                .font(WKCCTypography.sectionTitle)
-                .foregroundStyle(WKCCColors.primary)
-
-            Spacer(minLength: 0)
-
-            if AppConfig.useMockAuth {
-                NotificationBellButton(unreadCount: notificationsViewModel.unreadCount) {
-                    isShowingNotifications = true
-                }
-            }
-        }
     }
 
     // MARK: - Content
