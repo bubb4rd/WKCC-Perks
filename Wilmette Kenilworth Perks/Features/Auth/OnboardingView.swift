@@ -514,7 +514,8 @@ private struct JoinArtwork: View {
     private func satellite(icon: String, tint: Color, size: CGFloat) -> some View {
         iconSatelliteContainer(tint: tint, size: size) {
             Image(systemName: icon)
-                .font(.body.weight(.semibold))
+                // Fixed size (matches default .body) so Dynamic Type can't overflow the badge.
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.white)
         }
     }
