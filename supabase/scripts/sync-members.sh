@@ -10,6 +10,8 @@ set -euo pipefail
 # Optional env:
 #   SYNC_CATEGORIES          "dry" or "apply" to also run sync-categories
 #                            afterwards (dry run reports changes, writes nothing)
+#   SYNC_HOT_DEALS           set to 1 to also mirror the Chambermate Hot Deals
+#                            board into hot_deals afterwards
 
 if [[ -z "${SUPABASE_FUNCTIONS_BASE:-}" || -z "${MEMBER_SYNC_SECRET:-}" ]]; then
   echo "Set SUPABASE_FUNCTIONS_BASE and MEMBER_SYNC_SECRET before running." >&2
@@ -36,6 +38,17 @@ curl -fsS -X POST \
 
 echo
 echo "Sync request completed."
+
+if [[ "${SYNC_HOT_DEALS:-}" == "1" ]]; then
+  curl -fsS -X POST \
+    "${BASE}/member-auth/sync-hot-deals" \
+    -H "x-sync-secret: ${MEMBER_SYNC_SECRET}" \
+    -H "Content-Type: application/json" \
+    -d '{}'
+
+  echo
+  echo "Hot deals sync completed."
+fi
 
 if [[ -n "${CATEGORIES_BODY:-}" ]]; then
   curl -fsS -X POST \

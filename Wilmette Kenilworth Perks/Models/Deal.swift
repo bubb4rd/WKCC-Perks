@@ -50,6 +50,24 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+/// A post from the chamber's Chambermate "Hot Deals" board. Read-only in the app.
+struct HotDeal: Identifiable, Equatable, Hashable {
+    let id: String
+    let title: String
+    /// Matched member's `cm_id`, when the post's company name matched a current member.
+    let businessId: String?
+    let businessName: String
+    /// Plain-text body of the board post.
+    let body: String
+    let startDate: Date?
+    let expirationDate: Date?
+
+    var isExpired: Bool {
+        guard let expirationDate else { return false }
+        return expirationDate < Date()
+    }
+}
+
 struct DealDetail: Codable, Identifiable, Equatable {
     let id: String
     let title: String
