@@ -64,7 +64,7 @@ struct DealDetailView: View {
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .wkccPageBackground()
         .safeAreaInset(edge: .bottom) {
-            if hotDeal == nil {
+            if hotDeal == nil, deal.requiresCode {
                 redeemStickyBar(deal: deal)
             }
         }
@@ -273,8 +273,8 @@ private struct DealDetailMetadataGrid: View {
 
             if showsRedemption {
                 metadataItem(
-                    icon: "qrcode",
-                    value: deal.redemptionDisplayStyle.label
+                    icon: deal.requiresCode ? "qrcode" : "checkmark.circle",
+                    value: deal.requiresCode ? deal.redemptionDisplayStyle.label : "No code needed"
                 )
             }
         }
