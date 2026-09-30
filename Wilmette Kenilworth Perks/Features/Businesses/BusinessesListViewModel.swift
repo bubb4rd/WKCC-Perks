@@ -36,10 +36,8 @@ final class BusinessesListViewModel {
 
         do {
             businesses = try await businessService.fetchBusinesses()
-        } catch is CancellationError {
-            // Superseded load; keep the current list without surfacing an error.
-        } catch let error as URLError where error.code == .cancelled {
-            // Same as above for URLSession-backed services.
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh); keep the current list, not a failure.
         } catch {
             errorMessage = error.localizedDescription
         }

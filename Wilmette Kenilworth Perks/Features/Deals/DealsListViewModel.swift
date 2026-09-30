@@ -65,6 +65,8 @@ final class DealsListViewModel {
                     return (business.id, logoURL)
                 }
             )
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh); keep current content, not a failure.
         } catch {
             errorMessage = error.localizedDescription
         }

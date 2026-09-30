@@ -55,7 +55,8 @@ struct DealsListView: View {
             )
         }
         .refreshable {
-            await viewModel.load()
+            // Own task so a mid-pull view update can't cancel the request.
+            await Task { await viewModel.load() }.value
         }
         .task {
             viewModel.applyInitialCategory(initialCategory)
