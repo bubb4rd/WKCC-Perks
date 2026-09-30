@@ -467,12 +467,9 @@ private struct EmptyPerkSlot: View {
                     .font(WKCCTypography.callout.weight(.semibold))
                     .foregroundStyle(WKCCColors.textSecondary)
 
-                HStack(spacing: WKCCSpacing.xxs) {
-                    Text("Submit a promotion")
-                    Image(systemName: "arrow.right")
-                }
-                .font(WKCCTypography.caption.weight(.semibold))
-                .foregroundStyle(WKCCColors.accent)
+                Text("Submit a promotion")
+                    .font(WKCCTypography.caption.weight(.semibold))
+                    .foregroundStyle(WKCCColors.textSecondary.opacity(0.8))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
