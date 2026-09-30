@@ -25,6 +25,12 @@ struct BusinessesListView: View {
     @State private var viewModel = BusinessesListViewModel()
     @State private var isFilterSheetPresented = false
     @AppStorage("businessesListLayout") private var layout: BusinessesListLayout = .list
+    /// Category chosen elsewhere (Home chips); applied once, then cleared.
+    @Binding var requestedCategory: DealCategory?
+
+    init(requestedCategory: Binding<DealCategory?> = .constant(nil)) {
+        _requestedCategory = requestedCategory
+    }
 
     private let gridColumns = [
         GridItem(.flexible(), spacing: WKCCSpacing.md, alignment: .top),
@@ -70,6 +76,13 @@ struct BusinessesListView: View {
         }
         .task {
             await viewModel.load()
+        }
+        // `initial` covers the first visit, when this tab is built after the request is set.
+        .onChange(of: requestedCategory, initial: true) { _, category in
+            guard let category else { return }
+            viewModel.searchText = ""
+            viewModel.selectedCategory = category
+            requestedCategory = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .businessLogoDidChange)) { _ in
             Task { await viewModel.load() }
