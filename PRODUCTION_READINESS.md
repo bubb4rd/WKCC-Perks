@@ -162,7 +162,7 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - [x] **Xcode 26+** available for ASC upload  
 - [x] `APNS_PRODUCTION=true` (set 2026-08-11 for TestFlight / App Store)  
 - [x] Scheduled Chambermate syncs (pg_cron + pg_net): members nightly 08:50 UTC, hot deals every 10 min. Needs Vault secrets `SUPABASE_FUNCTIONS_BASE` and `MEMBER_SYNC_SECRET` (must equal the `MEMBER_SYNC_SECRET` function secret; rotate both together). Health: `select * from sync_state;` — `perks` logs a warning when hot deals have not synced for an hour.  
-- [ ] Re-archive with Xcode 26, upload to ASC, then **Submit to App Review**  
+- [x] Re-archive with Xcode 26, upload to ASC, then **Submit to App Review** — live on the App Store; 1.0.2 released 2026-10-07  
 
 ---
 
