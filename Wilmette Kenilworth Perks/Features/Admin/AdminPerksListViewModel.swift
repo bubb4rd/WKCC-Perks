@@ -28,6 +28,8 @@ final class AdminPerksListViewModel {
 
         do {
             perks = try await perksAdminService.fetchAllPerks()
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh); keep current content, not a failure.
         } catch {
             errorMessage = "Unable to load perks."
         }

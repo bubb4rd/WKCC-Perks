@@ -25,6 +25,8 @@ final class NotificationsViewModel {
 
         do {
             notifications = try await notificationService.fetchNotifications(for: member, isAdmin: isAdmin)
+        } catch let error where error.isCancellation {
+            // Cancelled by SwiftUI (e.g. mid-refresh); keep current content, not a failure.
         } catch {
             errorMessage = error.localizedDescription
         }

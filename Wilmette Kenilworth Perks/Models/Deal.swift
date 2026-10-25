@@ -11,6 +11,8 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
     let isFeatured: Bool
     let membersOnly: Bool
     let archivedAt: Date?
+    /// False when the promotion's code type is "No code needed": nothing to redeem.
+    let requiresCode: Bool
 
     var isArchived: Bool { archivedAt != nil }
 
@@ -35,7 +37,8 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
         expirationDate: Date?,
         isFeatured: Bool,
         membersOnly: Bool,
-        archivedAt: Date? = nil
+        archivedAt: Date? = nil,
+        requiresCode: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -47,6 +50,60 @@ struct DealSummary: Codable, Identifiable, Equatable, Hashable {
         self.isFeatured = isFeatured
         self.membersOnly = membersOnly
         self.archivedAt = archivedAt
+        self.requiresCode = requiresCode
+    }
+}
+
+/// A post from the chamber's Chambermate "Hot Deals" board. Read-only in the app.
+struct HotDeal: Identifiable, Equatable, Hashable {
+    let id: String
+    let title: String
+    /// Matched member's `cm_id`, when the post's company name matched a current member.
+    let businessId: String?
+    let businessName: String
+    /// Plain-text body of the board post.
+    let body: String
+    let startDate: Date?
+    let expirationDate: Date?
+
+    var isExpired: Bool {
+        guard let expirationDate else { return false }
+        return expirationDate < Date()
+    }
+
+    /// Shape for `DealCard`. Hot deals carry no category, so they file under Other.
+    var asSummary: DealSummary {
+        DealSummary(
+            id: id,
+            title: title,
+            businessId: businessId ?? "",
+            businessName: businessName,
+            shortDescription: title,
+            category: .other,
+            expirationDate: expirationDate,
+            isFeatured: false,
+            membersOnly: false
+        )
+    }
+
+    /// Shape for `DealDetailView`. Redemption fields stay empty: there is nothing to redeem.
+    var asDetail: DealDetail {
+        DealDetail(
+            id: id,
+            title: title,
+            businessId: businessId ?? "",
+            businessName: businessName,
+            description: body,
+            terms: nil,
+            redemptionInstructions: "",
+            redemptionCode: nil,
+            startDate: startDate,
+            expirationDate: expirationDate,
+            category: .other,
+            imageURL: nil,
+            membersOnly: false,
+            isFeatured: false
+        )
     }
 }
 
@@ -68,6 +125,11 @@ struct DealDetail: Codable, Identifiable, Equatable {
     let archivedAt: Date?
 
     var isArchived: Bool { archivedAt != nil }
+
+    /// A promotion saved as "No code needed" stores no code, so nothing to redeem.
+    var requiresCode: Bool {
+        !(redemptionCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
 
     var isExpired: Bool {
         guard let expirationDate else { return false }

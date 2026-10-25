@@ -47,7 +47,8 @@ struct MySubmissionsListView: View {
         .toolbarBackground(WKCCColors.pageBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .refreshable {
-            await viewModel.load(for: authManager.member?.id)
+            // Own task so a mid-pull view update can't cancel the request.
+            await Task { await viewModel.load(for: authManager.member?.id) }.value
         }
         .task(id: "\(authManager.member?.id ?? "")-\(viewModel.selectedFilter.rawValue)") {
             await viewModel.load(for: authManager.member?.id)

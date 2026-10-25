@@ -24,6 +24,12 @@ final class DealDetailViewModel {
         deal?.imageURL ?? businessLogoURL
     }
 
+    /// Shows a deal that is already in hand (hot deals aren't served by `fetchDeal`).
+    func show(_ deal: DealDetail, logoURL: URL?) {
+        businessLogoURL = logoURL
+        self.deal = deal
+    }
+
     func load(dealId: String) async {
         guard !isLoading else { return }
         isLoading = true

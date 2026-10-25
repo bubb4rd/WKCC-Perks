@@ -109,6 +109,9 @@ struct PerkCardBackground: View {
 struct DealCard: View {
     let deal: DealSummary
     var businessLogoURL: URL? = nil
+    /// Set when the card stands for a Chambermate hot deal: View only, nothing to redeem.
+    /// Deals that need no code also show View only.
+    var hotDeal: HotDeal? = nil
 
     private let logoSize: CGFloat = 92
     /// How far the logo hangs past the white card on the top and leading edges.
@@ -168,28 +171,37 @@ struct DealCard: View {
             Spacer(minLength: WKCCSpacing.xs)
 
             HStack(spacing: WKCCSpacing.xs) {
-                NavigationLink(value: deal) {
-                    dealCTALabel(
-                        title: "View",
-                        systemImage: "eye",
-                        style: .secondary
-                    )
-                }
-                .buttonStyle(.plain)
+                viewLink
 
-                Button {
-                    Task { await openRedemption() }
-                } label: {
-                    dealCTALabel(
-                        title: "Redeem",
-                        systemImage: "qrcode",
-                        style: .primary
-                    )
+                if hotDeal == nil, deal.requiresCode {
+                    Button {
+                        Task { await openRedemption() }
+                    } label: {
+                        dealCTALabel(
+                            title: "Redeem",
+                            systemImage: "qrcode",
+                            style: .primary
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(deal.isExpired || isLoadingRedeem)
+                    .opacity(deal.isExpired ? 0.45 : 1)
                 }
-                .buttonStyle(.plain)
-                .disabled(deal.isExpired || isLoadingRedeem)
-                .opacity(deal.isExpired ? 0.45 : 1)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var viewLink: some View {
+        let label = dealCTALabel(title: "View", systemImage: "eye", style: .secondary)
+        if let hotDeal {
+            NavigationLink {
+                DealDetailView(hotDeal: hotDeal, logoURL: businessLogoURL)
+            } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: deal) { label }
+                .buttonStyle(.plain)
         }
     }
 
@@ -284,6 +296,77 @@ struct BusinessCard: View {
         }
         .padding(WKCCSpacing.md)
         .wkccCardStyle()
+    }
+}
+
+/// Square-ish card for the two-column businesses grid.
+struct BusinessGridCard: View {
+    let business: ChamberBusiness
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WKCCSpacing.xs) {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { logo }
+                .clipShape(RoundedRectangle(cornerRadius: WKCCRadius.md, style: .continuous))
+
+            VStack(alignment: .leading, spacing: WKCCSpacing.xxs) {
+                Text(business.name)
+                    .font(WKCCTypography.headline)
+                    .foregroundStyle(WKCCColors.textPrimary)
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+
+                Text(business.category.rawValue)
+                    .font(WKCCTypography.caption)
+                    .foregroundStyle(WKCCColors.accent)
+                    .lineLimit(1)
+
+                Text(business.activeDealCount > 0
+                     ? "\(business.activeDealCount) active perk\(business.activeDealCount == 1 ? "" : "s")"
+                     : " ")
+                    .font(WKCCTypography.captionBold)
+                    .foregroundStyle(WKCCColors.primary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(WKCCSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .wkccCardStyle()
+    }
+
+    // Logos are often wide wordmarks, so fit rather than fill to avoid cropping.
+    @ViewBuilder
+    private var logo: some View {
+        if let url = business.logoURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .padding(WKCCSpacing.xs)
+                case .empty:
+                    Color(white: 0.9)
+                default:
+                    logoPlaceholder
+                }
+            }
+        } else {
+            logoPlaceholder
+        }
+    }
+
+    private var logoPlaceholder: some View {
+        ZStack {
+            WKCCColors.accent.opacity(0.15)
+
+            Image("WKCCLogo")
+                .resizable()
+                .scaledToFit()
+                .padding(WKCCSpacing.lg)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -563,6 +646,40 @@ struct CategoryChip: View {
                     .stroke(WKCCColors.primary.opacity(isSelected ? 0 : 0.15), lineWidth: 1)
             )
         }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+struct WKCCSearchField: View {
+    let prompt: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: WKCCSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(WKCCColors.textSecondary)
+
+            TextField(prompt, text: $text)
+                .foregroundStyle(WKCCColors.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(WKCCColors.textSecondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(WKCCTypography.body)
+        .padding(.horizontal, WKCCSpacing.sm)
+        .frame(height: 44)
+        .background(WKCCColors.cardBackground, in: Capsule())
+        .wkccCardShadow()
     }
 }
 

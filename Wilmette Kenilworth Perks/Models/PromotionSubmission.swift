@@ -74,7 +74,8 @@ extension PromotionSubmission {
             category: category,
             expirationDate: endDate,
             isFeatured: false,
-            membersOnly: true
+            membersOnly: true,
+            requiresCode: redemptionCodeType != .none
         )
     }
 

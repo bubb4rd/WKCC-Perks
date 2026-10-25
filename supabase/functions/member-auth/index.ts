@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { normalizeCategory } from "../_shared/categories.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,6 +34,7 @@ type ChamberMemberRow = {
   phone?: string | null;
   address?: string | null;
   address_public?: boolean | null;
+  companymate_key?: string | null;
   raw?: Record<string, unknown> | null;
 };
 
@@ -44,19 +46,6 @@ const PROFILE_COLUMNS =
 
 /** Includes `raw` for lat/long when listing business directory entries. */
 const BUSINESS_COLUMNS = `${MEMBER_COLUMNS}, ${PROFILE_COLUMNS}, raw`;
-
-const ALLOWED_CATEGORIES = new Set([
-  "Shopping and Specialty Retail",
-  "Health Care",
-  "Home and Garden",
-  "Restaurants, Food and Beverages",
-  "Government, Education and Individuals",
-  "Personal Services and Care",
-  "Business and Professional Services",
-  "Finance and Insurance",
-  "Advertising and Media",
-  "Other",
-]);
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const ALLOWED_LOGO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -311,6 +300,7 @@ function mapDealSummary(row: Record<string, unknown>) {
     expirationDate: row.end_date ?? null,
     isFeatured: Boolean(row.is_featured),
     membersOnly: Boolean(row.members_only),
+    requiresCode: String(row.redemption_code ?? "").trim() !== "",
   };
 }
 
@@ -334,10 +324,7 @@ function mapBusiness(
   options: { includePrivateAddress?: boolean } = {},
 ) {
   const raw = member.raw ?? null;
-  const category =
-    typeof member.category === "string" && member.category.trim()
-      ? member.category.trim()
-      : "Other";
+  const category = normalizeCategory(member.category) ?? "Other";
   const shortDescription =
     typeof member.short_description === "string" ? member.short_description : "";
   const websiteURL =
@@ -1016,7 +1003,12 @@ async function handleCompanyLogo(req: Request): Promise<Response> {
 
   const { data: updated, error: updateError } = await supabase
     .from("chamber_members")
-    .update({ logo_url: logoURL })
+    .update({
+      logo_url: logoURL,
+      logo_source: "member_upload",
+      logo_skip_key: null,
+      logo_skip_reason: null,
+    })
     .eq("cm_id", session.member.cm_id)
     .select(MEMBER_COLUMNS)
     .single();
@@ -1050,8 +1042,8 @@ async function handleCompanyProfile(req: Request): Promise<Response> {
     return jsonResponse({ error: "Invalid profile payload." }, 400);
   }
 
-  const category = typeof body.category === "string" ? body.category.trim() : "";
-  if (!ALLOWED_CATEGORIES.has(category)) {
+  const category = normalizeCategory(body.category);
+  if (!category) {
     return jsonResponse({ error: "Invalid category." }, 400);
   }
 
@@ -1065,10 +1057,31 @@ async function handleCompanyProfile(req: Request): Promise<Response> {
   const addressPublic = body.addressPublic !== false;
 
   const supabase = supabaseAdmin();
+  const { data: current, error: currentError } = await supabase
+    .from("chamber_members")
+    .select("category, category_source")
+    .eq("cm_id", session.member.cm_id)
+    .single();
+  if (currentError) throw currentError;
+
+  // The form always posts a category, so only claim it for the member when they
+  // actually changed it; otherwise a phone-number edit would lock in a synced
+  // category. "Other" never replaces a Chambermate-synced category: older app
+  // builds can't display the newer labels and post "Other" back unchanged.
+  const storedCategory = normalizeCategory(current.category) ?? "Other";
+  const categoryUpdate: Record<string, string> = {};
+  if (
+    category !== storedCategory &&
+    !(category === "Other" && current.category_source === "chambermate")
+  ) {
+    categoryUpdate.category = category;
+    categoryUpdate.category_source = "member";
+  }
+
   const { data: updated, error } = await supabase
     .from("chamber_members")
     .update({
-      category,
+      ...categoryUpdate,
       short_description: shortDescription || null,
       website_url: websiteURL,
       phone,
@@ -1110,7 +1123,7 @@ async function handleBusinesses(req: Request): Promise<Response> {
     const { data: deals, error: dealsError } = await supabase
       .from("deals")
       .select(
-        "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at",
+        "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at, redemption_code",
       )
       .is("archived_at", null)
       .in("business_id", businessIds);
@@ -1161,7 +1174,7 @@ async function handleBusiness(req: Request, businessId: string): Promise<Respons
   const { data: deals, error: dealsError } = await supabase
     .from("deals")
     .select(
-      "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at",
+      "id, title, business_id, business_name, short_description, category, end_date, is_featured, members_only, archived_at, redemption_code",
     )
     .is("archived_at", null)
     .eq("business_id", String(cmId));
@@ -1177,91 +1190,672 @@ async function handleBusiness(req: Request, businessId: string): Promise<Respons
   );
 }
 
-type ChamberMasterMember = {
-  Id?: number | string;
-  Name?: string;
-  DisplayName?: string;
-  Email?: string | null;
-  Status?: number | string;
-  Level?: number | string | null;
-  MembershipEstablished?: string | null;
-  DropDate?: string | null;
-  Slug?: string | null;
-  DisplayFlags?: string | null;
+type ChambermateCompany = {
+  companyKey: string;
+  companyName?: string;
+  email?: string | null;
+  phone?: { number?: string | null } | null;
+  initialMembershipDate?: string | null;
   [key: string]: unknown;
 };
 
-async function handleSyncMembers(req: Request): Promise<Response> {
-  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
-  const provided = req.headers.get("x-sync-secret") ?? "";
-  if (!syncSecret || provided !== syncSecret) {
-    return jsonResponse({ error: "Unauthorized." }, 401);
-  }
+type ChambermateBusinessCategory = {
+  systemFieldOptionKey?: string | null;
+  label?: string | null;
+};
 
-  const apiKey = Deno.env.get("CHAMBERMASTER_API_KEY") ?? "";
-  const baseURL = (Deno.env.get("CHAMBERMASTER_BASE_URL") ?? "").replace(/\/+$/, "");
-  if (!apiKey || !baseURL) {
+type ChambermateMembership = {
+  companyKey: string;
+  company: ChambermateCompany;
+  /** Only populated when requested with includeBusinessCategories=true. */
+  businessCategories?: ChambermateBusinessCategory[] | null;
+  [key: string]: unknown;
+};
+
+/**
+ * Chambermate's public WebPresence directory only ever returns *current*
+ * members (no dropped/prospective history, no admin-only fields) -- see the
+ * chambermaster_to_chambermate_migration project memory. Everyone it returns
+ * is treated as active; anyone previously linked via `companymate_key` who
+ * stops appearing here is flipped out of ACTIVE_STATUS below.
+ */
+async function handleSyncMembers(): Promise<Response> {
+  const apiKey = Deno.env.get("CHAMBERMATE_API_KEY") ?? "";
+  if (!apiKey) {
     return jsonResponse(
-      { error: "ChamberMaster API is not configured on the server." },
+      { error: "Chambermate API is not configured on the server." },
       503,
     );
   }
+  const baseURL = (
+    Deno.env.get("CHAMBERMATE_BASE_URL") ?? "https://api.chambermate.com/core/biz"
+  ).replace(/\/+$/, "");
 
-  const response = await fetch(`${baseURL}/api/v1/members`, {
-    headers: {
-      Accept: "application/json",
-      "X-ApiKey": apiKey,
-    },
-  });
+  const response = await fetch(
+    `${baseURL}/webPresence/searchMembershipDirectory?apiKey=${
+      encodeURIComponent(apiKey)
+    }&rowCount=2000&includeBusinessCategories=true`,
+    { headers: { Accept: "application/json" } },
+  );
 
   if (!response.ok) {
     const text = await response.text();
     return jsonResponse(
-      { error: `ChamberMaster sync failed: ${response.status} ${text}` },
+      { error: `Chambermate sync failed: ${response.status} ${text}` },
       502,
     );
   }
 
   const payload = await response.json();
-  const list: ChamberMasterMember[] = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.Members)
-    ? payload.Members
-    : Array.isArray(payload?.items)
-    ? payload.items
-    : [];
+  if (payload?.status !== true) {
+    return jsonResponse(
+      {
+        error: `Chambermate sync failed: ${
+          payload?.message ?? payload?.error ?? "unknown error"
+        }`,
+      },
+      502,
+    );
+  }
 
-  const rows = list
-    .map((item) => {
-      const cmId = Number(item.Id);
-      if (!Number.isFinite(cmId)) return null;
-      const email = typeof item.Email === "string" && item.Email.trim()
-        ? item.Email.trim().toLowerCase()
-        : null;
-      return {
-        cm_id: cmId,
-        name: String(item.Name ?? item.DisplayName ?? `Member ${cmId}`),
-        display_name: String(item.DisplayName ?? item.Name ?? `Member ${cmId}`),
-        email,
-        status: String(item.Status ?? ""),
-        level: item.Level == null ? null : String(item.Level),
-        membership_established: item.MembershipEstablished ?? null,
-        drop_date: item.DropDate ?? null,
-        slug: item.Slug ?? null,
-        display_flags: String(item.DisplayFlags ?? ""),
-        raw: item,
-        synced_at: new Date().toISOString(),
-      };
-    })
-    .filter(Boolean);
+  const memberships: ChambermateMembership[] =
+    Array.isArray(payload?.data?.memberships) ? payload.data.memberships : [];
+
+  const byKey = new Map<string, ChambermateMembership>();
+  for (const membership of memberships) {
+    const key = membership.companyKey ?? membership.company?.companyKey;
+    if (typeof key === "string" && key) byKey.set(key, membership);
+  }
+  const keys = [...byKey.keys()];
 
   const supabase = supabaseAdmin();
-  const { error } = await supabase.from("chamber_members").upsert(rows, {
-    onConflict: "cm_id",
+
+  // Companies already linked to a cm_id (from the one-time migration backfill,
+  // or a previous run of this sync) keep that same cm_id.
+  const cmIdByKey = new Map<string, number>();
+  if (keys.length > 0) {
+    const { data: existingRows, error: existingError } = await supabase
+      .from("chamber_members")
+      .select("cm_id, companymate_key")
+      .in("companymate_key", keys);
+    if (existingError) throw existingError;
+    for (const row of existingRows ?? []) {
+      if (row.companymate_key) cmIdByKey.set(row.companymate_key, row.cm_id);
+    }
+  }
+
+  // Brand-new companies (never in ChamberMaster, or still awaiting manual
+  // crosswalk review) get fresh cm_id values from the reserved companymate band.
+  const newKeys = keys.filter((key) => !cmIdByKey.has(key));
+  if (newKeys.length > 0) {
+    const { data: idRows, error: idError } = await supabase.rpc(
+      "next_companymate_cm_ids",
+      { n: newKeys.length },
+    );
+    if (idError) throw idError;
+    const newIds = (idRows ?? []) as number[];
+    if (newIds.length !== newKeys.length) {
+      throw new Error(
+        "Failed to reserve cm_id values for new Chambermate companies.",
+      );
+    }
+    newKeys.forEach((key, i) => cmIdByKey.set(key, newIds[i]));
+  }
+
+  const syncedAt = new Date().toISOString();
+  const rows = [...byKey.entries()].map(([key, membership]) => {
+    const company = membership.company ?? ({} as ChambermateCompany);
+    const cmId = cmIdByKey.get(key)!;
+    const email =
+      typeof company.email === "string" && company.email.trim()
+        ? company.email.trim().toLowerCase()
+        : null;
+    const name = String(company.companyName ?? `Member ${cmId}`);
+    return {
+      cm_id: cmId,
+      name,
+      display_name: name,
+      email,
+      status: ACTIVE_STATUS,
+      level: null,
+      membership_established: company.initialMembershipDate ?? null,
+      drop_date: null,
+      slug: null,
+      display_flags: "",
+      companymate_key: key,
+      raw: membership as unknown as Record<string, unknown>,
+      synced_at: syncedAt,
+    };
   });
-  if (error) throw error;
+
+  if (rows.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("chamber_members")
+      .upsert(rows, { onConflict: "cm_id" });
+    if (upsertError) throw upsertError;
+  }
+
+  // Anyone previously linked via companymate_key who no longer shows up in this
+  // pull has dropped out of Chambermate's current-members list -- cut off their
+  // entitlements. Skipped entirely if Chambermate returned nothing, so a
+  // transient empty response can't wipe out everyone's access. Never touches
+  // rows with no companymate_key (legacy ChamberMaster-only members awaiting
+  // manual crosswalk review, or the -1 App Review test account).
+  if (rows.length > 0) {
+    const stillCurrentIds = rows.map((row) => row.cm_id);
+    const { error: dropError } = await supabase
+      .from("chamber_members")
+      .update({ status: "dropped", synced_at: syncedAt })
+      .not("companymate_key", "is", null)
+      .eq("status", ACTIVE_STATUS)
+      .not("cm_id", "in", `(${stillCurrentIds.join(",")})`);
+    if (dropError) throw dropError;
+  }
 
   return jsonResponse({ ok: true, upserted: rows.length });
+}
+
+type ChambermatePost = {
+  postKey?: string;
+  title?: string;
+  postHtml?: { html?: string | null } | null;
+  companyName?: string | null;
+  avatarStorageKey?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  [key: string]: unknown;
+};
+
+/** Flattens a Chambermate rich-text post body to plain text with paragraph breaks. */
+function postHtmlToText(html: string): string {
+  return html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|li|div|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Post dates are UTC but come without a zone suffix ("2026-12-01T06:00:00"). */
+function postDateToISO(value?: string | null): string | null {
+  if (!value) return null;
+  const iso = /(z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+function normalizeCompanyName(name: string): string {
+  return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Mirrors the Chambermate "Hot Deals" board (public getPostsInfo feed, no API
+ * key needed) into `hot_deals`. Read-only in the app: rows are replaced on every
+ * run and posts that left the board are deleted. Posts carry only a company
+ * name, so business_id is filled by exact normalized-name match against current
+ * members; unmatched posts still sync (business_id null) and are reported.
+ */
+async function handleSyncHotDeals(): Promise<Response> {
+  const baseURL = (
+    Deno.env.get("CHAMBERMATE_BASE_URL") ?? "https://api.chambermate.com/core/biz"
+  ).replace(/\/+$/, "");
+  const params = new URLSearchParams({
+    websiteShorthand: Deno.env.get("CHAMBERMATE_WEBSITE_SHORTHAND") ??
+      "wilmettekenilworth",
+    websiteDomain: Deno.env.get("CHAMBERMATE_WEBSITE_DOMAIN") ??
+      "www.wilmettekenilworth.com",
+    boardId: Deno.env.get("CHAMBERMATE_HOT_DEALS_BOARD_ID") ?? "1652",
+  });
+
+  const response = await fetch(
+    `${baseURL}/webPresence/getPostsInfo?${params}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    return jsonResponse(
+      { error: `Hot deals sync failed: ${response.status} ${text}` },
+      502,
+    );
+  }
+
+  const payload = await response.json();
+  if (payload?.status !== true || !Array.isArray(payload?.data?.posts)) {
+    return jsonResponse(
+      {
+        error: `Hot deals sync failed: ${
+          payload?.error?.errorMessage ?? payload?.message ?? "unexpected response"
+        }`,
+      },
+      502,
+    );
+  }
+  const posts = payload.data.posts as ChambermatePost[];
+
+  const supabase = supabaseAdmin();
+  const { data: members, error: membersError } = await supabase
+    .from("chamber_members")
+    .select("cm_id, name, display_name")
+    .eq("status", ACTIVE_STATUS);
+  if (membersError) throw membersError;
+
+  const cmIdByName = new Map<string, number>();
+  for (const member of members ?? []) {
+    for (const name of [member.name, member.display_name]) {
+      if (typeof name !== "string" || !name) continue;
+      const key = normalizeCompanyName(name);
+      if (key && !cmIdByName.has(key)) cmIdByName.set(key, member.cm_id);
+    }
+  }
+
+  const syncedAt = new Date().toISOString();
+  const unmatched: string[] = [];
+  const rows = posts
+    .filter((post) => typeof post.postKey === "string" && post.postKey)
+    .map((post) => {
+      const companyName = String(post.companyName ?? "").trim();
+      const cmId = cmIdByName.get(normalizeCompanyName(companyName));
+      if (cmId === undefined) unmatched.push(companyName || String(post.postKey));
+      return {
+        post_key: post.postKey as string,
+        title: String(post.title ?? "").trim(),
+        body: postHtmlToText(String(post.postHtml?.html ?? "")),
+        company_name: companyName,
+        business_id: cmId === undefined ? null : String(cmId),
+        avatar_storage_key: post.avatarStorageKey ?? null,
+        start_date: postDateToISO(post.startDate),
+        end_date: postDateToISO(post.endDate),
+        raw: post as unknown as Record<string, unknown>,
+        synced_at: syncedAt,
+      };
+    });
+
+  if (rows.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("hot_deals")
+      .upsert(rows, { onConflict: "post_key" });
+    if (upsertError) throw upsertError;
+  }
+
+  // The feed parsed cleanly, so an empty board is real: drop anything that left it.
+  const keep = rows.map((row) => `"${row.post_key}"`);
+  const stale = supabase.from("hot_deals").delete();
+  const { error: deleteError } = keep.length > 0
+    ? await stale.not("post_key", "in", `(${keep.join(",")})`)
+    : await stale.neq("post_key", "");
+  if (deleteError) throw deleteError;
+
+  return jsonResponse({
+    ok: true,
+    upserted: rows.length,
+    matched: rows.length - unmatched.length,
+    unmatched,
+  });
+}
+
+const LOGO_SYNC_DEFAULT_LIMIT = 25;
+const LOGO_SYNC_MAX_LIMIT = 50;
+const LOGO_SYNC_TIMEOUT_MS = 15_000;
+
+/**
+ * Copies member logos from Chambermate into our `business-logos` bucket.
+ * Chambermate only exposes an `avatarStorageKey`; the public avatarDirectView
+ * endpoint 302s to a ~2 minute presigned S3 URL, so we copy rather than link.
+ *
+ * Body: { dryRun?: boolean (default TRUE), limit?: number }. A dry run
+ * downloads and validates each candidate but writes nothing. Never touches
+ * `member_upload` logos or legacy logos; only fills empty ones or refreshes a
+ * logo previously imported from Chambermate whose avatar key has changed.
+ */
+async function handleSyncLogos(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as {
+    dryRun?: boolean;
+    limit?: number;
+  } | null;
+  const dryRun = body?.dryRun !== false;
+  const limit = Math.min(
+    Math.max(Math.floor(Number(body?.limit)) || LOGO_SYNC_DEFAULT_LIMIT, 1),
+    LOGO_SYNC_MAX_LIMIT,
+  );
+
+  const coreURL = (
+    Deno.env.get("CHAMBERMATE_CORE_URL") ?? "https://api.chambermate.com/core"
+  ).replace(/\/+$/, "");
+
+  const supabase = supabaseAdmin();
+  const { data: rows, error } = await supabase
+    .from("chamber_members")
+    .select(
+      "cm_id, name, companymate_key, logo_url, logo_source, chambermate_avatar_key, logo_skip_key, raw",
+    )
+    .eq("status", ACTIVE_STATUS)
+    .not("companymate_key", "is", null);
+  if (error) throw error;
+
+  type Candidate = { cm_id: number; name: string; companyKey: string; avatarKey: string };
+  const candidates: Candidate[] = [];
+  let noAvatar = 0;
+  let alreadySkipped = 0;
+  for (const row of rows ?? []) {
+    const avatarKey = String(
+      (row.raw as { company?: { avatarStorageKey?: string } } | null)?.company
+        ?.avatarStorageKey ?? "",
+    ).trim();
+    if (!avatarKey) {
+      noAvatar++;
+      continue;
+    }
+    // Already rejected this exact avatar (too large / wrong type); wait for a new one.
+    if (row.logo_skip_key === avatarKey) {
+      alreadySkipped++;
+      continue;
+    }
+    const hasLogo = typeof row.logo_url === "string" && row.logo_url.trim() !== "";
+    const refresh = row.logo_source === "chambermate" &&
+      row.chambermate_avatar_key !== avatarKey;
+    if (!hasLogo || refresh) {
+      candidates.push({
+        cm_id: row.cm_id,
+        name: row.name,
+        companyKey: row.companymate_key as string,
+        avatarKey,
+      });
+    }
+  }
+
+  const batch = candidates.slice(0, limit);
+  const results: Array<Record<string, unknown>> = [];
+  let copied = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const recordSkip = async (c: Candidate, reason: string) => {
+    skipped++;
+    results.push({ cm_id: c.cm_id, name: c.name, outcome: "skipped", reason });
+    if (dryRun) return;
+    const { error: skipError } = await supabase
+      .from("chamber_members")
+      .update({ logo_skip_key: c.avatarKey, logo_skip_reason: reason })
+      .eq("cm_id", c.cm_id);
+    if (skipError) throw skipError;
+  };
+
+  for (const c of batch) {
+    try {
+      const avatarURL = new URL(`${coreURL}/shared/query/avatarDirectView`);
+      avatarURL.searchParams.set("entityKey", c.companyKey);
+      avatarURL.searchParams.set("entityName", "Company");
+      avatarURL.searchParams.set("avatarStorageKey", c.avatarKey);
+      avatarURL.searchParams.set("noFallback", "true");
+
+      const redirect = await fetch(avatarURL, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(LOGO_SYNC_TIMEOUT_MS),
+      });
+      const location = redirect.headers.get("location");
+      if (redirect.status < 300 || redirect.status > 399 || !location) {
+        throw new Error(`avatar lookup returned ${redirect.status}`);
+      }
+      const imageURL = new URL(location, avatarURL);
+      if (
+        imageURL.protocol !== "https:" ||
+        !imageURL.hostname.endsWith(".amazonaws.com")
+      ) {
+        throw new Error("unexpected avatar redirect host");
+      }
+
+      const imageResponse = await fetch(imageURL, {
+        signal: AbortSignal.timeout(LOGO_SYNC_TIMEOUT_MS),
+      });
+      if (!imageResponse.ok) {
+        throw new Error(`image download returned ${imageResponse.status}`);
+      }
+      const bytes = new Uint8Array(await imageResponse.arrayBuffer());
+      if (bytes.byteLength === 0 || bytes.byteLength > MAX_LOGO_BYTES) {
+        await recordSkip(
+          c,
+          `size ${bytes.byteLength} bytes outside 1..${MAX_LOGO_BYTES}`,
+        );
+        continue;
+      }
+      const type = sniffImageContentType(bytes);
+      if (!type || !ALLOWED_LOGO_TYPES.has(type)) {
+        await recordSkip(c, "unsupported image type");
+        continue;
+      }
+
+      if (dryRun) {
+        results.push({
+          cm_id: c.cm_id,
+          name: c.name,
+          outcome: "would_copy",
+          type,
+          bytes: bytes.byteLength,
+        });
+        continue;
+      }
+
+      const path = `${c.cm_id}/logo.${logoExtension(type)}`;
+      const { error: uploadError } = await supabase.storage
+        .from("business-logos")
+        .upload(path, new Blob([bytes], { type }), {
+          contentType: type,
+          upsert: true,
+          cacheControl: "3600",
+        });
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage
+        .from("business-logos")
+        .getPublicUrl(path);
+      const { error: updateError } = await supabase
+        .from("chamber_members")
+        .update({
+          logo_url: `${publicData.publicUrl}?t=${Date.now()}`,
+          logo_source: "chambermate",
+          chambermate_avatar_key: c.avatarKey,
+          logo_skip_key: null,
+          logo_skip_reason: null,
+          logo_synced_at: new Date().toISOString(),
+        })
+        .eq("cm_id", c.cm_id);
+      if (updateError) throw updateError;
+
+      copied++;
+      results.push({ cm_id: c.cm_id, name: c.name, outcome: "copied", type });
+    } catch (e) {
+      failed++;
+      results.push({
+        cm_id: c.cm_id,
+        name: c.name,
+        outcome: "failed",
+        reason: e instanceof Error ? e.message : "unknown error",
+      });
+    }
+  }
+
+  return jsonResponse({
+    ok: true,
+    dryRun,
+    candidates: candidates.length,
+    processed: batch.length,
+    noAvatar,
+    alreadySkipped,
+    copied,
+    skipped,
+    failed,
+    results,
+  });
+}
+
+/**
+ * Sets each business's category from the Chambermate business categories that
+ * sync-members stored in `raw` (our categories are Chambermate's labels, so no
+ * mapping). When a business has several, the first Chambermate lists wins.
+ *
+ * Body: { dryRun?: boolean (default TRUE) }. Never touches categories a member
+ * picked in the app (`category_source = 'member'`); refreshes a category
+ * previously synced from Chambermate only when its Chambermate categories
+ * change. Businesses Chambermate has no category for are left alone.
+ */
+async function handleSyncCategories(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as { dryRun?: boolean } | null;
+  const dryRun = body?.dryRun !== false;
+
+  const supabase = supabaseAdmin();
+  const { data: rows, error } = await supabase
+    .from("chamber_members")
+    .select("cm_id, name, category, category_source, chambermate_category_key, raw")
+    .eq("status", ACTIVE_STATUS)
+    .not("companymate_key", "is", null);
+  if (error) throw error;
+
+  const results: Array<Record<string, unknown>> = [];
+  const unknownLabels: Record<string, number> = {};
+  let noCategories = 0;
+  let protectedMember = 0;
+  let unchanged = 0;
+  let updated = 0;
+
+  for (const row of rows ?? []) {
+    const categories = (row.raw as ChambermateMembership | null)?.businessCategories ?? [];
+    if (categories.length === 0) {
+      noCategories++;
+      continue;
+    }
+
+    const categoryKey = categories
+      .map((c) => String(c.systemFieldOptionKey ?? c.label ?? ""))
+      .sort()
+      .join(",");
+    let category: string | null = null;
+    for (const c of categories) {
+      const normalized = normalizeCategory(c.label);
+      if (normalized) {
+        category ??= normalized;
+      } else {
+        const label = String(c.label ?? "(no label)");
+        unknownLabels[label] = (unknownLabels[label] ?? 0) + 1;
+      }
+    }
+    if (!category) continue;
+
+    if (row.category_source === "member") {
+      protectedMember++;
+      continue;
+    }
+    if (
+      row.category_source === "chambermate" &&
+      row.chambermate_category_key === categoryKey
+    ) {
+      unchanged++;
+      continue;
+    }
+
+    results.push({
+      cm_id: row.cm_id,
+      name: row.name,
+      outcome: dryRun ? "would_set" : "set",
+      from: row.category ?? null,
+      to: category,
+    });
+    if (dryRun) continue;
+
+    const { error: updateError } = await supabase
+      .from("chamber_members")
+      .update({
+        category,
+        category_source: "chambermate",
+        chambermate_category_key: categoryKey,
+        category_synced_at: new Date().toISOString(),
+      })
+      .eq("cm_id", row.cm_id);
+    if (updateError) throw updateError;
+    updated++;
+  }
+
+  return jsonResponse({
+    ok: true,
+    dryRun,
+    total: rows?.length ?? 0,
+    changes: results.length,
+    updated,
+    unchanged,
+    protectedMember,
+    noCategories,
+    unknownLabels,
+    results,
+  });
+}
+
+function isSyncAuthorized(req: Request): boolean {
+  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
+  const provided = req.headers.get("x-sync-secret") ?? "";
+  return syncSecret !== "" && provided === syncSecret;
+}
+
+/** Sync routes, keyed by route, with the `sync_state.source` each one records under. */
+const SYNC_ROUTES = new Map<
+  string,
+  { source: string; run: (req: Request) => Promise<Response> }
+>([
+  ["sync-members", { source: "members", run: () => handleSyncMembers() }],
+  ["sync-hot-deals", { source: "hot_deals", run: () => handleSyncHotDeals() }],
+  ["sync-logos", { source: "logos", run: handleSyncLogos }],
+  ["sync-categories", { source: "categories", run: handleSyncCategories }],
+]);
+
+/**
+ * Records a sync's outcome in `sync_state`. Scheduled runs go through pg_net,
+ * which never reads the response, so this row is the only evidence a run worked.
+ * Dry runs write nothing and are not recorded. A failure to record is logged
+ * and never masks the sync's own result.
+ */
+async function recordSyncOutcome(source: string, error: string | null) {
+  const now = new Date().toISOString();
+  const { error: writeError } = await supabaseAdmin()
+    .from("sync_state")
+    .upsert(
+      error === null
+        ? { source, last_success_at: now }
+        : { source, last_error: error.slice(0, 1000), last_error_at: now },
+      { onConflict: "source" },
+    );
+  if (writeError) {
+    console.error("[member-auth] sync_state write failed", source, writeError.message);
+  }
+}
+
+async function runRecordedSync(
+  source: string,
+  run: () => Promise<Response>,
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await run();
+  } catch (error) {
+    await recordSyncOutcome(
+      source,
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+
+  const body = await response.clone().json().catch(() => null);
+  if (!response.ok) {
+    await recordSyncOutcome(source, String(body?.error ?? `HTTP ${response.status}`));
+  } else if (body?.dryRun !== true) {
+    await recordSyncOutcome(source, null);
+  }
+  return response;
 }
 
 Deno.serve(async (req) => {
@@ -1307,8 +1901,12 @@ Deno.serve(async (req) => {
       const businessId = url.searchParams.get("id") ?? "";
       return await handleBusiness(req, businessId);
     }
-    if (route === "sync-members" && req.method === "POST") {
-      return await handleSyncMembers(req);
+    const sync = SYNC_ROUTES.get(route);
+    if (sync && req.method === "POST") {
+      if (!isSyncAuthorized(req)) {
+        return jsonResponse({ error: "Unauthorized." }, 401);
+      }
+      return await runRecordedSync(sync.source, () => sync.run(req));
     }
     return jsonResponse({ error: "Unknown route." }, 404);
   } catch (error) {

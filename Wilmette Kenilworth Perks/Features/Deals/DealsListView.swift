@@ -15,7 +15,7 @@ struct DealsListView: View {
         Group {
             if viewModel.isLoading && viewModel.deals.isEmpty {
                 LoadingView(message: "Loading deals...")
-            } else if viewModel.filteredDeals.isEmpty {
+            } else if viewModel.filteredDeals.isEmpty, viewModel.filteredHotDeals.isEmpty {
                 EmptyStateView(
                     icon: "tag",
                     title: "No Deals Found",
@@ -55,7 +55,8 @@ struct DealsListView: View {
             )
         }
         .refreshable {
-            await viewModel.load()
+            // Own task so a mid-pull view update can't cancel the request.
+            await Task { await viewModel.load() }.value
         }
         .task {
             viewModel.applyInitialCategory(initialCategory)
@@ -76,6 +77,14 @@ struct DealsListView: View {
                     ErrorBanner(message: error) {
                         viewModel.dismissError()
                     }
+                }
+
+                ForEach(viewModel.filteredHotDeals) { hotDeal in
+                    DealCard(
+                        deal: hotDeal.asSummary,
+                        businessLogoURL: hotDeal.businessId.flatMap { viewModel.logoURL(for: $0) },
+                        hotDeal: hotDeal
+                    )
                 }
 
                 ForEach(viewModel.filteredDeals) { deal in

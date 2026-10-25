@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { normalizeCategory } from "../_shared/categories.ts";
 import {
   emitPush,
   notifyAdminsOfSubmission,
@@ -23,19 +24,6 @@ type AuthContext = {
 };
 
 const ACTIVE_MEMBER_STATUS = "2";
-
-const ALLOWED_CATEGORIES = new Set([
-  "Shopping and Specialty Retail",
-  "Health Care",
-  "Home and Garden",
-  "Restaurants, Food and Beverages",
-  "Government, Education and Individuals",
-  "Personal Services and Care",
-  "Business and Professional Services",
-  "Finance and Insurance",
-  "Advertising and Media",
-  "Other",
-]);
 
 const ALLOWED_REDEMPTION_TYPES = new Set([
   "No code needed",
@@ -172,8 +160,8 @@ function validateSubmissionFields(
   const title = clipText(submission.title, MAX_TITLE);
   if (!title) return { ok: false, error: "Title is required." };
 
-  const category = clipText(submission.category, 80) || "Other";
-  if (!ALLOWED_CATEGORIES.has(category)) {
+  const category = normalizeCategory(clipText(submission.category, 80) || "Other");
+  if (!category) {
     return { ok: false, error: "Invalid category." };
   }
 
@@ -341,6 +329,7 @@ function mapDealSummary(row: Record<string, unknown>) {
     isFeatured: Boolean(row.is_featured),
     membersOnly: Boolean(row.members_only),
     archivedAt: row.archived_at ?? null,
+    requiresCode: String(row.redemption_code ?? "").trim() !== "",
   };
 }
 
@@ -411,7 +400,7 @@ function dealInsertFromSubmission(input: {
     terms: String(s.terms ?? "").trim() || null,
     redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
     redemption_code: String(s.redemptionCode ?? "").trim() || null,
-    category: String(s.category ?? "Other"),
+    category: normalizeCategory(s.category) ?? "Other",
     start_date: s.startDate ?? null,
     end_date: s.endDate ?? null,
     image_url: null,
@@ -443,7 +432,7 @@ function dealUpdateFromSubmission(input: {
     terms: String(s.terms ?? "").trim() || null,
     redemption_instructions: String(s.redemptionInstructions ?? "").trim(),
     redemption_code: String(s.redemptionCode ?? "").trim() || null,
-    category: String(s.category ?? "Other"),
+    category: normalizeCategory(s.category) ?? "Other",
     start_date: s.startDate ?? null,
     end_date: s.endDate ?? null,
     updated_at: new Date().toISOString(),
@@ -469,6 +458,60 @@ async function handleGetDeals(): Promise<Response> {
     .order("end_date", { ascending: true });
   if (error) throw error;
   return jsonResponse((data ?? []).map(mapDealSummary));
+}
+
+function mapHotDeal(row: Record<string, unknown>) {
+  return {
+    id: String(row.post_key),
+    title: row.title,
+    businessId: row.business_id ?? null,
+    businessName: row.company_name,
+    body: row.body ?? "",
+    startDate: row.start_date ?? null,
+    expirationDate: row.end_date ?? null,
+  };
+}
+
+const HOT_DEALS_STALE_AFTER_MS = 60 * 60 * 1000;
+
+// Read-only mirror of the Chambermate "Hot Deals" board (see member-auth/sync-hot-deals,
+// scheduled every 10 minutes by pg_cron). Warns when the mirror stops refreshing.
+async function handleGetHotDeals(): Promise<Response> {
+  const supabase = supabaseAdmin();
+  const now = new Date().toISOString();
+  const [{ data, error }, { data: syncState, error: syncStateError }] =
+    await Promise.all([
+      supabase
+        .from("hot_deals")
+        .select("*")
+        .or(`start_date.is.null,start_date.lte.${now}`)
+        .or(`end_date.is.null,end_date.gte.${now}`)
+        .order("end_date", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("sync_state")
+        .select("last_success_at, last_error, last_error_at")
+        .eq("source", "hot_deals")
+        .maybeSingle(),
+    ]);
+  if (error) throw error;
+
+  const lastSuccess = syncState?.last_success_at
+    ? Date.parse(syncState.last_success_at)
+    : NaN;
+  if (syncStateError) {
+    console.warn("[perks] hot deals sync state unavailable:", syncStateError.message);
+  } else if (!(Date.now() - lastSuccess <= HOT_DEALS_STALE_AFTER_MS)) {
+    console.warn(
+      "[perks] hot deals mirror is stale:",
+      JSON.stringify({
+        lastSuccessAt: syncState?.last_success_at ?? null,
+        lastError: syncState?.last_error ?? null,
+        lastErrorAt: syncState?.last_error_at ?? null,
+      }),
+    );
+  }
+
+  return jsonResponse((data ?? []).map(mapHotDeal));
 }
 
 async function handleGetDeal(
@@ -1085,6 +1128,11 @@ Deno.serve(async (req) => {
       parts[0] === "device-tokens"
     ) {
       return await handleUnregisterDeviceToken(auth, req);
+    }
+
+    // GET /hot-deals
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "hot-deals") {
+      return await handleGetHotDeals();
     }
 
     // GET /deals

@@ -10,6 +10,15 @@ final class SupabaseDealsService: DealsServicing {
         return rows.map { $0.toModel() }
     }
 
+    func fetchHotDeals() async throws -> [HotDeal] {
+        let rows: [PerksHotDealDTO] = try await PerksAPIClient.request(
+            method: .get,
+            path: "hot-deals",
+            as: [PerksHotDealDTO].self
+        )
+        return rows.map { $0.toModel() }
+    }
+
     func fetchDeal(id: String) async throws -> DealDetail {
         do {
             let row: PerksDealDetailDTO = try await PerksAPIClient.request(
