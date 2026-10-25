@@ -1219,13 +1219,7 @@ type ChambermateMembership = {
  * is treated as active; anyone previously linked via `companymate_key` who
  * stops appearing here is flipped out of ACTIVE_STATUS below.
  */
-async function handleSyncMembers(req: Request): Promise<Response> {
-  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
-  const provided = req.headers.get("x-sync-secret") ?? "";
-  if (!syncSecret || provided !== syncSecret) {
-    return jsonResponse({ error: "Unauthorized." }, 401);
-  }
-
+async function handleSyncMembers(): Promise<Response> {
   const apiKey = Deno.env.get("CHAMBERMATE_API_KEY") ?? "";
   if (!apiKey) {
     return jsonResponse(
@@ -1409,13 +1403,7 @@ function normalizeCompanyName(name: string): string {
  * name, so business_id is filled by exact normalized-name match against current
  * members; unmatched posts still sync (business_id null) and are reported.
  */
-async function handleSyncHotDeals(req: Request): Promise<Response> {
-  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
-  const provided = req.headers.get("x-sync-secret") ?? "";
-  if (!syncSecret || provided !== syncSecret) {
-    return jsonResponse({ error: "Unauthorized." }, 401);
-  }
-
+async function handleSyncHotDeals(): Promise<Response> {
   const baseURL = (
     Deno.env.get("CHAMBERMATE_BASE_URL") ?? "https://api.chambermate.com/core/biz"
   ).replace(/\/+$/, "");
@@ -1528,12 +1516,6 @@ const LOGO_SYNC_TIMEOUT_MS = 15_000;
  * logo previously imported from Chambermate whose avatar key has changed.
  */
 async function handleSyncLogos(req: Request): Promise<Response> {
-  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
-  const provided = req.headers.get("x-sync-secret") ?? "";
-  if (!syncSecret || provided !== syncSecret) {
-    return jsonResponse({ error: "Unauthorized." }, 401);
-  }
-
   const body = await req.json().catch(() => null) as {
     dryRun?: boolean;
     limit?: number;
@@ -1725,12 +1707,6 @@ async function handleSyncLogos(req: Request): Promise<Response> {
  * change. Businesses Chambermate has no category for are left alone.
  */
 async function handleSyncCategories(req: Request): Promise<Response> {
-  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
-  const provided = req.headers.get("x-sync-secret") ?? "";
-  if (!syncSecret || provided !== syncSecret) {
-    return jsonResponse({ error: "Unauthorized." }, 401);
-  }
-
   const body = await req.json().catch(() => null) as { dryRun?: boolean } | null;
   const dryRun = body?.dryRun !== false;
 
@@ -1820,6 +1796,68 @@ async function handleSyncCategories(req: Request): Promise<Response> {
   });
 }
 
+function isSyncAuthorized(req: Request): boolean {
+  const syncSecret = Deno.env.get("MEMBER_SYNC_SECRET") ?? "";
+  const provided = req.headers.get("x-sync-secret") ?? "";
+  return syncSecret !== "" && provided === syncSecret;
+}
+
+/** Sync routes, keyed by route, with the `sync_state.source` each one records under. */
+const SYNC_ROUTES = new Map<
+  string,
+  { source: string; run: (req: Request) => Promise<Response> }
+>([
+  ["sync-members", { source: "members", run: () => handleSyncMembers() }],
+  ["sync-hot-deals", { source: "hot_deals", run: () => handleSyncHotDeals() }],
+  ["sync-logos", { source: "logos", run: handleSyncLogos }],
+  ["sync-categories", { source: "categories", run: handleSyncCategories }],
+]);
+
+/**
+ * Records a sync's outcome in `sync_state`. Scheduled runs go through pg_net,
+ * which never reads the response, so this row is the only evidence a run worked.
+ * Dry runs write nothing and are not recorded. A failure to record is logged
+ * and never masks the sync's own result.
+ */
+async function recordSyncOutcome(source: string, error: string | null) {
+  const now = new Date().toISOString();
+  const { error: writeError } = await supabaseAdmin()
+    .from("sync_state")
+    .upsert(
+      error === null
+        ? { source, last_success_at: now }
+        : { source, last_error: error.slice(0, 1000), last_error_at: now },
+      { onConflict: "source" },
+    );
+  if (writeError) {
+    console.error("[member-auth] sync_state write failed", source, writeError.message);
+  }
+}
+
+async function runRecordedSync(
+  source: string,
+  run: () => Promise<Response>,
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await run();
+  } catch (error) {
+    await recordSyncOutcome(
+      source,
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+
+  const body = await response.clone().json().catch(() => null);
+  if (!response.ok) {
+    await recordSyncOutcome(source, String(body?.error ?? `HTTP ${response.status}`));
+  } else if (body?.dryRun !== true) {
+    await recordSyncOutcome(source, null);
+  }
+  return response;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -1863,17 +1901,12 @@ Deno.serve(async (req) => {
       const businessId = url.searchParams.get("id") ?? "";
       return await handleBusiness(req, businessId);
     }
-    if (route === "sync-members" && req.method === "POST") {
-      return await handleSyncMembers(req);
-    }
-    if (route === "sync-hot-deals" && req.method === "POST") {
-      return await handleSyncHotDeals(req);
-    }
-    if (route === "sync-logos" && req.method === "POST") {
-      return await handleSyncLogos(req);
-    }
-    if (route === "sync-categories" && req.method === "POST") {
-      return await handleSyncCategories(req);
+    const sync = SYNC_ROUTES.get(route);
+    if (sync && req.method === "POST") {
+      if (!isSyncAuthorized(req)) {
+        return jsonResponse({ error: "Unauthorized." }, 401);
+      }
+      return await runRecordedSync(sync.source, () => sync.run(req));
     }
     return jsonResponse({ error: "Unknown route." }, 404);
   } catch (error) {

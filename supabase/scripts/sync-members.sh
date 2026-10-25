@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync Chambermate members into Supabase via the member-auth edge function.
+# Manually sync Chambermate members into Supabase via the member-auth edge function.
+# In production pg_cron already runs sync-members nightly and sync-hot-deals every
+# 10 minutes (migration 20261025220000_scheduled_chambermate_syncs.sql); each run's
+# outcome lands in public.sync_state. Use this script for an immediate refresh.
 #
 # Required env:
 #   SUPABASE_FUNCTIONS_BASE  e.g. https://xxxx.supabase.co/functions/v1

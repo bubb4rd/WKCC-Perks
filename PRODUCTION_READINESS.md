@@ -161,6 +161,7 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - [x] Screenshots + review sign-in notes in ASC (confirm if already done)  
 - [x] **Xcode 26+** available for ASC upload  
 - [x] `APNS_PRODUCTION=true` (set 2026-08-11 for TestFlight / App Store)  
+- [x] Scheduled Chambermate syncs (pg_cron + pg_net): members nightly 08:50 UTC, hot deals every 10 min. Needs Vault secrets `SUPABASE_FUNCTIONS_BASE` and `MEMBER_SYNC_SECRET` (must equal the `MEMBER_SYNC_SECRET` function secret; rotate both together). Health: `select * from sync_state;` — `perks` logs a warning when hot deals have not synced for an hour.  
 - [ ] Re-archive with Xcode 26, upload to ASC, then **Submit to App Review**  
 
 ---
@@ -188,3 +189,4 @@ Today redemption is largely presentational (show code / instructions). Add a cle
 - Closed §5 notifications for launch: APNs push-only (device tokens + perks emits); in-app inbox remains mock-gated.
 - Launch ops verified 2026-07-29: secrets (unset `AUTH_DEBUG_RETURN_CODE`), `member-auth`/`perks` ACTIVE, migrations applied, chamber admin present; dry runs + review account marked done. Remaining: App Store listing/submit ([`APP_STORE_SUBMIT.md`](APP_STORE_SUBMIT.md)).
 - 2026-08-11: Resend domain live (`noreply@wilmettekenilworth.com`); APNs secrets + device push verified; privacy policy hosted + ASC App Privacy done. Remaining: Xcode 26 archive/upload, screenshots/review notes if missing, `APNS_PRODUCTION=true` for release.
+- 2026-10-25: Chambermate member + hot deals syncs scheduled via pg_cron (were manual-only; hot deals mirror had been stale since 2026-09-30). Outcomes recorded in `sync_state`.

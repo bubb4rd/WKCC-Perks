@@ -472,17 +472,45 @@ function mapHotDeal(row: Record<string, unknown>) {
   };
 }
 
-// Read-only mirror of the Chambermate "Hot Deals" board (see member-auth/sync-hot-deals).
+const HOT_DEALS_STALE_AFTER_MS = 60 * 60 * 1000;
+
+// Read-only mirror of the Chambermate "Hot Deals" board (see member-auth/sync-hot-deals,
+// scheduled every 10 minutes by pg_cron). Warns when the mirror stops refreshing.
 async function handleGetHotDeals(): Promise<Response> {
   const supabase = supabaseAdmin();
   const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("hot_deals")
-    .select("*")
-    .or(`start_date.is.null,start_date.lte.${now}`)
-    .or(`end_date.is.null,end_date.gte.${now}`)
-    .order("end_date", { ascending: true, nullsFirst: false });
+  const [{ data, error }, { data: syncState, error: syncStateError }] =
+    await Promise.all([
+      supabase
+        .from("hot_deals")
+        .select("*")
+        .or(`start_date.is.null,start_date.lte.${now}`)
+        .or(`end_date.is.null,end_date.gte.${now}`)
+        .order("end_date", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("sync_state")
+        .select("last_success_at, last_error, last_error_at")
+        .eq("source", "hot_deals")
+        .maybeSingle(),
+    ]);
   if (error) throw error;
+
+  const lastSuccess = syncState?.last_success_at
+    ? Date.parse(syncState.last_success_at)
+    : NaN;
+  if (syncStateError) {
+    console.warn("[perks] hot deals sync state unavailable:", syncStateError.message);
+  } else if (!(Date.now() - lastSuccess <= HOT_DEALS_STALE_AFTER_MS)) {
+    console.warn(
+      "[perks] hot deals mirror is stale:",
+      JSON.stringify({
+        lastSuccessAt: syncState?.last_success_at ?? null,
+        lastError: syncState?.last_error ?? null,
+        lastErrorAt: syncState?.last_error_at ?? null,
+      }),
+    );
+  }
+
   return jsonResponse((data ?? []).map(mapHotDeal));
 }
 
